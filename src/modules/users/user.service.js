@@ -1,5 +1,6 @@
 const userModel = require('./user.model');
 const storageService = require('../../services/storage.service');
+const prisma = require('../../config/db');
 
 const saveProfile = async (userId, phone, profileData) => {
     if (!userId) {
@@ -20,12 +21,22 @@ const saveProfile = async (userId, phone, profileData) => {
 
     console.log('[UserService] Saving profile for UID:', userId);
 
-    // MIGRATION CHECK: If this UID doesn't exist, check if the phone exists under an old ID
-    const existingById = await userModel.findProfileById(userId);
-    if (!existingById && phone) {
+    // 🛡️ ADVANCED MIGRATION CHECK: Handle clashes between new UID and old Phone
+    if (phone) {
         const existingByPhone = await userModel.findProfileByPhone(phone);
+        
         if (existingByPhone && existingByPhone.id !== userId) {
-            console.log(`[UserService] 🔄 Migrating legacy profile for phone ${phone} to new UID ${userId}`);
+            console.log(`[UserService] 🔄 Conflict detected: Phone ${phone} is owned by legacy ID ${existingByPhone.id}.`);
+            
+            // Check if we have a "placeholder" profile for the new UID
+            const existingByUid = await userModel.findProfileById(userId);
+            if (existingByUid) {
+                console.log(`[UserService] 🗑️ Removing placeholder profile for UID ${userId} to allow migration.`);
+                // We use a raw delete to avoid any relation issues during this transition
+                await prisma.profile.delete({ where: { id: userId } });
+            }
+
+            console.log(`[UserService] 🏗️ Migrating legacy profile ${existingByPhone.id} -> ${userId}`);
             await userModel.migrateProfileId(existingByPhone.id, userId);
         }
     }
