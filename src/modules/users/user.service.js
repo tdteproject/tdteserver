@@ -39,20 +39,23 @@ const saveProfile = async (userId, phone, profileData) => {
     };
 };
 
-const getProfile = async (userId) => {
-    if (!userId) {
-        throw new Error('User ID (UID) is required to retrieve profile.');
+const getProfile = async (userId, phone) => {
+    if (!userId && !phone) {
+        throw new Error('User ID (UID) or phone is required to retrieve profile.');
     }
 
-    console.log('[UserService] Fetching profile for UID:', userId);
+    console.log('[UserService] Fetching profile for UID:', userId, 'or phone:', phone);
 
-    let profile = await userModel.findProfileById(userId);
+    let profile = userId ? await userModel.findProfileById(userId) : null;
 
-    // MIGRATION FALLBACK: If not found by UID, try finding by phone if available via some other means
-    // In this context, we usually only have the userId. But we can check if the user exists.
+    // MIGRATION FALLBACK: If not found by UID, try finding by phone
+    if (!profile && phone) {
+        console.log(`[UserService] Profile not found by UID, trying fallback for phone: ${phone}`);
+        profile = await userModel.findProfileByPhone(phone);
+    }
     
     if (!profile) {
-        console.log('[UserService] Profile not found for UID:', userId);
+        console.log('[UserService] Profile not found for UID or phone');
         return null;
     }
 

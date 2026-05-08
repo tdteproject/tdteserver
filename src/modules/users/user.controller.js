@@ -24,10 +24,11 @@ const upsertProfile = async (req, res, next) => {
 const getProfile = async (req, res, next) => {
     try {
         const userId = req.user.uid;
+        const phone = req.user.phone;
 
-        console.log('[UserController] Fetching profile for UID:', userId);
+        console.log('[UserController] Fetching profile for UID:', userId, 'or phone:', phone);
 
-        const profile = await userService.getProfile(userId);
+        const profile = await userService.getProfile(userId, phone);
 
         if (!profile) {
             console.warn('[UserController] Profile not found for UID:', userId);
