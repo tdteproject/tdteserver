@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: pdt-backend
+    env: node
+    plan: free
+    buildCommand: npm install && npx prisma generate
+    startCommand: npm run db:deploy && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false # Set manually in Render Dashboard or provide if safe
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false # Set manually in Render Dashboard
+      - key: SUPABASE_URL
+        sync: false # Set manually
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false # Set manually
+      - key: CORS_ALLOWED_ORIGINS
+        value: "*"
+      - key: PORT
+        value: 10000

@@ -1,0 +1,428 @@
+// This generator produces the Prisma Client JavaScript library
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Connect to local PostgreSQL via PgAdmin 4
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── User Profile ──────────────────────────────────────────────────────────────
+// Primary key is the Firebase UID (string) for quick verification.
+// phone_number is a unique field for phone-based identification.
+// This allows us to query by either Firebase UID or phone number.
+model Profile {
+  id        String   @id          // Firebase UID
+  phone     String?  @unique      // Phone number as unique identifier for cross-device access
+  fullName  String?  @map("full_name")
+  age       Int?
+  gender    String?
+  weight    Float?
+  height         Float?
+  profilePicture String?  @map("profile_picture")
+  isSuperAdmin   Boolean  @default(false) @map("is_super_admin")
+  updatedAt      DateTime @updatedAt   @map("updated_at")
+
+  activities  FitnessActivity[]
+  records     HealthRecord[]
+  heartRates  HeartRateLog[]
+  healthEvents HealthEvent[]
+  healthDailySummaries HealthDailySummary[]
+  goalSetting GoalSetting?
+  deviceSources DeviceSource[]
+  sleepSessions SleepSession[]
+  gpsSessions   GpsSession[]
+  userRoles     UserRole[]
+
+  @@map("profiles")
+}
+
+// ─── Daily Fitness Activity ────────────────────────────────────────────────────
+// One row per user per day. The unique constraint on (userId, date) enables
+// safe upserts — the frontend syncs on every step delta.
+model FitnessActivity {
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  date              DateTime @default(now()) @db.Date
+  steps             Int      @default(0)
+  stepGoal          Int      @default(10000)  @map("step_goal")
+  caloriesBurned    Float    @default(0)      @map("calories_burned")
+  caloriesGoal      Float    @default(0)      @map("calories_goal")
+  distanceKm        Float    @default(0)      @map("distance_km")
+  hydrationMl       Int      @default(0)      @map("hydration_ml")
+  hydrationGoalMl   Int      @default(2500)   @map("hydration_goal_ml")
+  activeTimeMinutes Int      @default(0)      @map("active_time_minutes")
+  updatedAt         DateTime @updatedAt       @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@map("fitness_activities")
+}
+
+// ─── Health Records ────────────────────────────────────────────────────────────
+// Stores metadata for uploaded files (PDFs, images).
+// The actual file is stored on the local disk at UPLOADS_DIR/health-records/.
+// filePath stores the relative path from UPLOADS_DIR.
+model HealthRecord {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  title     String
+  category  String
+  filePath  String   @map("file_path")
+  mimeType  String?  @map("mime_type")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("health_records")
+}
+
+// ─── Heart Rate Logs ──────────────────────────────────────────────────────────
+// Stores all heart rate measurements with source tracking and confidence scoring
+// One entry per measurement (multiple entries possible per user per day)
+// Phone-based data isolation via userId foreign key
+model HeartRateLog {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  bpm       Int                              // 40-200 typical range
+  source    String   @default("camera")     // "camera", "health_connect", "wearable"
+  confidence Float?                         // 0.0-1.0 confidence score
+  stable    Boolean  @default(false)
+  samples   Int?     @map("samples")
+  durationMs Int?    @map("duration_ms")
+  measuredAt DateTime? @map("measured_at")
+  deviceId  String?  @map("device_id")
+  sessionId String?  @map("session_id")
+  createdAt DateTime @default(now())        @map("created_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, createdAt])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@map("heart_rate_logs")
+}
+
+// â”€â”€â”€ Unified Health Events â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Append-only event store for future metrics: nutrition, sleep, cycle, vitals,
+// smartwatch sync, and manual entries.
+model HealthEvent {
+  id            String   @id @default(cuid())
+  userId        String   @map("user_id")
+  metricType    String   @map("metric_type")
+  valueNumber   Float?   @map("value_number")
+  valueText     String?  @map("value_text")
+  unit          String?
+  sourceType    String   @default("manual") @map("source_type")
+  deviceId      String?  @map("device_id")
+  capturedAt    DateTime @default(now()) @map("captured_at")
+  timezone      String?
+  clientEventId String?  @map("client_event_id")
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientEventId])
+  @@index([userId, metricType, capturedAt])
+  @@index([userId, capturedAt])
+  @@map("health_events")
+}
+
+// â”€â”€â”€ Unified Daily Summaries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Fast read model for cards and charts. Each metric gets one row per day.
+model HealthDailySummary {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  metricType   String   @map("metric_type")
+  date         DateTime @db.Date
+  valueNumber  Float    @default(0) @map("value_number")
+  valueText    String?   @map("value_text")
+  unit         String?
+  goalNumber   Float?    @map("goal_number")
+  goalText     String?   @map("goal_text")
+  metadata     Json?
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, metricType, date])
+  @@index([userId, metricType, date])
+  @@map("health_daily_summaries")
+}
+
+// â”€â”€â”€ Goal Settings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+model GoalSetting {
+  id                String   @id @default(cuid())
+  userId            String   @unique @map("user_id")
+  stepGoal          Int      @default(10000) @map("step_goal")
+  caloriesGoal      Float    @default(500) @map("calories_goal")
+  hydrationGoalMl   Int      @default(2500) @map("hydration_goal_ml")
+  heartPointsGoal   Int      @default(150) @map("heart_points_goal")
+  sleepGoalMinutes  Int      @default(480) @map("sleep_goal_minutes")
+  weightGoal        Float?   @map("weight_goal")
+  metadata          Json?
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("goal_settings")
+}
+
+// â”€â”€â”€ Device Sources â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+model DeviceSource {
+  id           String   @id @default(cuid())
+  userId       String   @map("user_id")
+  sourceType   String   @map("source_type")
+  deviceId     String?  @map("device_id")
+  deviceName   String?  @map("device_name")
+  platform     String?
+  lastSyncedAt DateTime? @map("last_synced_at")
+  metadata     Json?
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceType, deviceId])
+  @@index([userId, sourceType])
+  @@map("device_sources")
+}
+
+// ─── Sleep Sessions ──────────────────────────────────────────────────────────
+// Stores detected sleep sessions from accelerometer-based mobile sleep tracking.
+// Fully isolated from steps, heart rate, and calories features.
+model SleepSession {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  startTime      DateTime @map("start_time")
+  endTime        DateTime @map("end_time")
+  durationMin    Int      @map("duration_min")       // Total sleep in minutes
+  movementScore  Float    @default(0) @map("movement_score") // Average movement index (0=still, higher=restless)
+  quality        String?                              // "good", "fair", "poor" (computed)
+  interruptions  Int      @default(0)                 // Number of detected wake-ups
+  source         String   @default("phone_accel")     // "phone_accel", "wearable"
+  metadata       Json?                                // Movement array, raw data, thresholds used
+  clientSessionId String? @unique @map("client_session_id") // Idempotency key from frontend
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, startTime])
+  @@index([startTime])
+  @@map("sleep_sessions")
+}
+
+// ─── GPS Activity Sessions ──────────────────────────────────────────────────
+// Stores completed GPS-tracked outdoor activity sessions.
+// Fully isolated from steps, heart rate, calories, and sleep features.
+model GpsSession {
+  id              String   @id @default(cuid())
+  userId          String   @map("user_id")
+  activityType    String   @map("activity_type")      // "walking", "running", "cycling"
+  startTime       DateTime @map("start_time")
+  endTime         DateTime @map("end_time")
+  durationSec     Int      @map("duration_sec")
+  distanceMeters  Float    @map("distance_meters")
+  avgSpeedKmh     Float    @default(0) @map("avg_speed_kmh")
+  maxSpeedKmh     Float    @default(0) @map("max_speed_kmh")
+  avgPaceMinKm    Float    @default(0) @map("avg_pace_min_km")
+  caloriesBurned  Float    @default(0) @map("calories_burned")
+  clientSessionId String?  @unique @map("client_session_id")
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user   Profile    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  routes GpsRoute[]
+
+  @@index([userId])
+  @@index([userId, startTime])
+  @@map("gps_sessions")
+}
+
+// ─── GPS Route Points ───────────────────────────────────────────────────────
+// Stores individual GPS coordinates for a tracked activity session.
+model GpsRoute {
+  id        String   @id @default(cuid())
+  sessionId String   @map("session_id")
+  latitude  Float
+  longitude Float
+  altitude  Float?
+  speed     Float?                // m/s at this point
+  accuracy  Float?                // GPS accuracy in meters
+  timestamp DateTime
+
+  session GpsSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([sessionId, timestamp])
+  @@map("gps_routes")
+}
+
+// ─── RBAC: Roles ────────────────────────────────────────────────────────────────
+// Defines roles such as SUPER_ADMIN, ADMIN, USER, or dynamic tenant roles.
+// Supports soft delete via deletedAt (paranoid).
+model Role {
+  id          String    @id @default(cuid())
+  name        String    @db.VarChar(80)
+  code        String    @unique @db.VarChar(80)
+  tenantId    String?   @map("tenant_id")
+  description String?   @db.VarChar(255)
+  isActive    Boolean   @default(true) @map("is_active")
+  createdBy   String?   @map("created_by")
+  updatedBy   String?   @map("updated_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@index([code])
+  @@map("roles")
+}
+
+// ─── RBAC: Platform Modules ─────────────────────────────────────────────────────
+// Top-level grouping for permissions (e.g., BILLING, REPORTS, PATIENTS).
+// Each module can have sub-features or direct permissions.
+enum PermissionScope {
+  OWN
+  ALL
+  TEAM
+}
+
+model Module {
+  id          String    @id @default(cuid())
+  code        String    @unique @db.VarChar(100)
+  name        String    @db.VarChar(150)
+  description String?
+  path        String?   @unique
+  parentId       String?   @map("parent_id")
+  icon           String?   @db.VarChar(100)
+  navigationType String    @default("SIDEBAR") @map("navigation_type")
+  isClickable    Boolean   @default(true) @map("is_clickable")
+  isVisible      Boolean   @default(true) @map("is_visible")
+  createdBy   String?   @map("created_by")
+  updatedBy   String?   @map("updated_by")
+  sortOrder   Int       @default(0) @map("sort_order")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  parent      Module?      @relation("ModuleHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Module[]     @relation("ModuleHierarchy")
+  permissions Permission[]
+
+  @@unique([code, deletedAt])
+  @@index([parentId])
+  @@index([isActive])
+  @@index([sortOrder])
+  @@map("modules")
+}
+
+// ─── RBAC: Platform Features ────────────────────────────────────────────────────
+// Sub-grouping within a module. Each feature auto-generates CRUD permissions.
+model PlatformFeatureLegacy {
+  id          String    @id @default(cuid())
+  code        String    @unique @db.VarChar(100)
+  name        String    @db.VarChar(150)
+  description String?
+  moduleId    String    @map("module_id")
+  isActive    Boolean   @default(true) @map("is_active")
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdBy   String?   @map("created_by")
+  updatedBy   String?   @map("updated_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  @@index([moduleId])
+  @@map("platform_features")
+  @@ignore
+}
+
+// ─── RBAC: Permissions ──────────────────────────────────────────────────────────
+// Granular action-level permissions. Each permission belongs to a module.
+model Permission {
+  id          String    @id @default(cuid())
+  code        String    @unique @db.VarChar(150)
+  moduleId    String    @map("module_id")
+  scope       PermissionScope @default(ALL)
+  action      String    @db.VarChar(40)
+  description String?   @db.VarChar(255)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  module          Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  rolePermissions RolePermission[]
+
+  @@index([moduleId])
+  @@map("permissions")
+}
+
+// ─── RBAC: User ↔ Role (many-to-many junction) ─────────────────────────────────
+// Maps users (profiles) to roles. A user can have multiple roles.
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  roleId    String   @map("role_id")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+// ─── RBAC: Role ↔ Permission (many-to-many junction) ────────────────────────────
+// Maps roles to permissions. A role can have many permissions.
+model RolePermission {
+  id           String    @id @default(cuid())
+  roleId       String    @map("role_id")
+  permissionId String    @map("permission_id")
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// ─── Audit Logs ─────────────────────────────────────────────────────────────────
+// Append-only audit trail for all RBAC actions (role create/update/delete, etc.)
+model AuditLog {
+  id          String   @id @default(cuid())
+  tenantId    String?  @map("tenant_id")
+  userId      String?  @map("user_id")
+  action      String
+  module      String
+  entityId    String?  @map("entity_id")
+  oldValues   Json?    @map("old_values")
+  newValues   Json?    @map("new_values")
+  description String?
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([action])
+  @@map("audit_logs")
+}

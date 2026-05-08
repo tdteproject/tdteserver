@@ -1,0 +1,33 @@
+// src/constants/permissions.js
+
+const PERMISSIONS = {
+  RBAC: {
+    ROLES: {
+      READ: "ROLES.READ",
+      WRITE: "ROLES.WRITE",
+      UPDATE: "ROLES.UPDATE",
+      DELETE: "ROLES.DELETE",
+    },
+    USERS: {
+      READ: "USERS.READ",
+      WRITE: "USERS.WRITE",
+      UPDATE: "USERS.UPDATE",
+      DELETE: "USERS.DELETE",
+    },
+    MODULES: {
+      READ: "MODULES.READ",
+      WRITE: "MODULES.WRITE",
+      UPDATE: "MODULES.UPDATE",
+      DELETE: "MODULES.DELETE",
+    },
+  },
+
+  PLATFORM_PERMISSION: {
+    READ: "PLATFORM_PERMISSION.READ",
+    WRITE: "PLATFORM_PERMISSION.WRITE",
+    UPDATE: "PLATFORM_PERMISSION.UPDATE",
+    DELETE: "PLATFORM_PERMISSION.DELETE",
+  },
+};
+
+module.exports = { PERMISSIONS };
