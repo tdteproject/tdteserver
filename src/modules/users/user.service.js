@@ -20,6 +20,16 @@ const saveProfile = async (userId, phone, profileData) => {
 
     console.log('[UserService] Saving profile for UID:', userId);
 
+    // MIGRATION CHECK: If this UID doesn't exist, check if the phone exists under an old ID
+    const existingById = await userModel.findProfileById(userId);
+    if (!existingById && phone) {
+        const existingByPhone = await userModel.findProfileByPhone(phone);
+        if (existingByPhone && existingByPhone.id !== userId) {
+            console.log(`[UserService] 🔄 Migrating legacy profile for phone ${phone} to new UID ${userId}`);
+            await userModel.migrateProfileId(existingByPhone.id, userId);
+        }
+    }
+
     const profile = await userModel.upsertProfile(userId, phone, mappedData);
 
     console.log('[UserService] Profile saved for UID:', userId);
@@ -36,8 +46,11 @@ const getProfile = async (userId) => {
 
     console.log('[UserService] Fetching profile for UID:', userId);
 
-    const profile = await userModel.findProfileById(userId);
+    let profile = await userModel.findProfileById(userId);
 
+    // MIGRATION FALLBACK: If not found by UID, try finding by phone if available via some other means
+    // In this context, we usually only have the userId. But we can check if the user exists.
+    
     if (!profile) {
         console.log('[UserService] Profile not found for UID:', userId);
         return null;

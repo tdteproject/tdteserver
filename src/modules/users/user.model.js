@@ -137,6 +137,20 @@ const updateUserById = async (id, data = {}) => {
     });
 };
 
+/**
+ * Safely migrate a profile ID (Primary Key) from an old ID to a new Firebase UID.
+ * This is used for "claiming" existing records from the old system.
+ * 
+ * @param {string} oldId - The current ID in the database
+ * @param {string} newId - The new Firebase UID to set as the primary key
+ */
+const migrateProfileId = async (oldId, newId) => {
+    // Prisma does not support updating Primary Keys directly.
+    // We use a raw query to perform this atomic migration.
+    // This will also update all foreign keys if 'ON UPDATE CASCADE' is set in the DB.
+    return prisma.$executeRaw`UPDATE "profiles" SET "id" = ${newId} WHERE "id" = ${oldId}`;
+};
+
 module.exports = {
     upsertProfile,
     findProfileByPhone,
@@ -144,4 +158,5 @@ module.exports = {
     getAllUsers,
     getUserById,
     updateUserById,
+    migrateProfileId,
 };

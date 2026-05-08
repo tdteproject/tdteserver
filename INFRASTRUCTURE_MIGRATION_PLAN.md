@@ -14,7 +14,7 @@ Firebase Authentication
         ↓
 Render Hosted Backend API
         ↓
-Supabase PostgreSQL
+Render PostgreSQL (Managed) OR Supabase PostgreSQL
         ↓
 Supabase Storage + Realtime
 ```
@@ -36,10 +36,10 @@ Supabase Storage + Realtime
 ✔ **JWT/Session verification (Firebase Admin SDK)**
 ✔ Database access layer (Prisma)
 
-## SUPABASE WILL HANDLE
-✔ PostgreSQL database (Managed)
-✔ File storage (Profiles & Records)
-✔ Realtime data sync
+## DATABASE & STORAGE
+✔ **Render PostgreSQL** (Primary DB provided by User)
+✔ **Supabase Storage** (Profiles & Records)
+✔ **Supabase Realtime** (Optional sync)
 
 ---
 
@@ -96,8 +96,12 @@ model User {
 
 # 📅 NEXT STEPS
 
-1. **[ ]** Implement `verifyFirebaseToken()` middleware in `app.js`.
-2. **[ ]** Configure `firebase-admin` initialization with Render environment variables.
-3. **[ ]** Audit all database tables to ensure foreign keys use `firebase_uid` (or a mapping table).
+1. **[x]** Implement `verifyFirebaseToken()` middleware in `app.js` (Implemented as `verifyToken` in `auth.middleware.js`).
+2. **[x]** Configure `firebase-admin` initialization with Render environment variables.
+3. **[x]** Audit all database tables to ensure foreign keys use `firebase_uid` (Standardized across all core modules).
 4. **[ ]** Remove all remaining Supabase Auth logic/client dependencies from frontend and backend.
-5. **[ ]** Verify file upload paths are correctly mapping to Firebase identities in Supabase Storage.
+5. **[x]** Verify file upload paths are correctly mapping to Firebase identities in Supabase Storage.
+6. **[x]** Deployment to Render:
+   - Backend: [tdteserver](https://github.com/tdteproject/tdteserver)
+   - Admin: [PDT-admin](https://github.com/anilkumardesai18/PDT-admin)
+   - Frontend: [PDT-frontend](https://github.com/anilkumardesai18/PDT-frontend)
