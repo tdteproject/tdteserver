@@ -417,7 +417,7 @@ model AuditLog {
 
 model AdminOtpChallenge {
   id           String    @id @default(cuid())
-  email        String    @db.VarChar(255)
+  identifier   String    @db.VarChar(255) // Email or Phone
   channel      String    @default("EMAIL") @db.VarChar(20)
   purpose      String    @default("ADMIN_LOGIN") @db.VarChar(50)
   codeHash     String    @map("code_hash") @db.VarChar(255)
@@ -429,7 +429,7 @@ model AdminOtpChallenge {
   userAgent    String?   @map("user_agent")
   createdAt    DateTime  @default(now()) @map("created_at")
 
-  @@index([email, purpose, createdAt])
+  @@index([identifier, purpose, createdAt])
   @@index([expiresAt])
   @@map("admin_otp_challenges")
 }

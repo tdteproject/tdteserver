@@ -5,8 +5,11 @@ const env = require('../../../config/env');
 const { sendEmailOtp, isMailConfigured } = require('../../../services/mailer.service');
 const { log } = require('../../../utils/auditLogger');
 
-const EMAIL_OTP_PURPOSE = 'ADMIN_LOGIN';
-const EMAIL_OTP_CHANNEL = 'EMAIL';
+const OTP_CHANNELS = {
+  EMAIL: 'EMAIL',
+  SMS: 'SMS',
+};
+const ADMIN_OTP_PURPOSE = 'ADMIN_LOGIN';
 const ALLOWED_ROLE_SCOPES = new Set(['PLATFORM', 'LAB', 'CUSTOM']);
 
 function normalizeEmail(email = '') {
@@ -30,10 +33,14 @@ function buildEmailAdminUid(email) {
   return `admin-email-${digest}`;
 }
 
-async function ensureFirebaseEmailUser(email) {
+async function ensureFirebaseUser({ email = null, phone = null }) {
   let firebaseUser;
   try {
-    firebaseUser = await admin.auth().getUserByEmail(email);
+    if (email) {
+      firebaseUser = await admin.auth().getUserByEmail(email);
+    } else if (phone) {
+      firebaseUser = await admin.auth().getUserByPhoneNumber(phone);
+    }
   } catch (error) {
     if (error.code !== 'auth/user-not-found') throw error;
   }
@@ -42,32 +49,27 @@ async function ensureFirebaseEmailUser(email) {
     return firebaseUser.uid;
   }
 
+  // Check DB for existing profile
   const existingProfile = await prisma.profile.findFirst({
-    where: { email },
+    where: email ? { email } : { phone },
     select: { id: true },
   });
 
-  const uid = existingProfile?.id || buildEmailAdminUid(email);
+  if (existingProfile) return existingProfile.id;
 
-  try {
-    const existing = await admin.auth().getUser(uid);
-    if (!existing.emailVerified || existing.email !== email) {
-      await admin.auth().updateUser(uid, {
-        email,
-        emailVerified: true,
-      });
-    }
-    return uid;
-  } catch (error) {
-    if (error.code !== 'auth/user-not-found') throw error;
-
-    await admin.auth().createUser({
-      uid,
-      email,
-      emailVerified: true,
-    });
-    return uid;
+  // Create new Firebase user if not found
+  const createParams = {};
+  if (email) {
+    createParams.email = email;
+    createParams.emailVerified = true;
   }
+  if (phone) {
+    createParams.phoneNumber = phone;
+    createParams.phoneVerified = true;
+  }
+
+  const userRecord = await admin.auth().createUser(createParams);
+  return userRecord.uid;
 }
 
 async function upsertAdminProfile({
@@ -126,16 +128,10 @@ async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) 
     throw error;
   }
 
-  // Check if the user exists and has a PLATFORM-level role (Admin or Super Admin)
+  // Check admin access
   const profile = await prisma.profile.findUnique({
     where: { email: normalizedEmail },
-    include: {
-      userRoles: {
-        include: {
-          role: true
-        }
-      }
-    }
+    include: { userRoles: { include: { role: true } } }
   });
 
   const hasAdminAccess = profile?.isSuperAdmin || (profile?.userRoles || []).some(ur => ur.role?.code === 'ADMIN' || ur.role?.code === 'SUPER_ADMIN');
@@ -150,20 +146,14 @@ async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) 
   const expiresAt = new Date(Date.now() + env.security.emailOtpExpiresMinutes * 60 * 1000);
 
   if (!isMailConfigured()) {
-    console.log('');
-    console.log('╔════════════════════════════════════════════════════════════════╗');
-    console.log('║  [DEVELOPMENT MODE] EMAIL OTP LOGGED TO CONSOLE                ║');
-    console.log(`║  Target Email: ${normalizedEmail.padEnd(47)} ║`);
-    console.log(`║  OTP CODE:     ${code.padEnd(47)} ║`);
-    console.log('╚════════════════════════════════════════════════════════════════╝');
-    console.log('');
+    console.log('\n[DEV] EMAIL OTP: ' + code + ' for ' + normalizedEmail + '\n');
   }
 
   await prisma.adminOtpChallenge.create({
     data: {
-      email: normalizedEmail,
-      channel: EMAIL_OTP_CHANNEL,
-      purpose: EMAIL_OTP_PURPOSE,
+      identifier: normalizedEmail,
+      channel: OTP_CHANNELS.EMAIL,
+      purpose: ADMIN_OTP_PURPOSE,
       codeHash: hashOtp(code),
       expiresAt,
       ipAddress,
@@ -182,15 +172,64 @@ async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) 
   await log({
     action: 'SEND_EMAIL_OTP',
     module: 'admin_auth',
-    description: `Email OTP sent to ${normalizedEmail}`,
+    description: `Email OTP requested for ${normalizedEmail}`,
     ip: ipAddress,
     ua: userAgent,
   });
 
-  return {
-    channel: EMAIL_OTP_CHANNEL,
-    expiresInMinutes: env.security.emailOtpExpiresMinutes,
-  };
+  return { channel: OTP_CHANNELS.EMAIL, expiresInMinutes: env.security.emailOtpExpiresMinutes };
+}
+
+async function sendPhoneLoginOtp({ phone, ipAddress = null, userAgent = null }) {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) {
+    const error = new Error('Phone number is required');
+    error.status = 400;
+    throw error;
+  }
+
+  // Check admin access
+  const profile = await prisma.profile.findUnique({
+    where: { phone: normalizedPhone },
+    include: { userRoles: { include: { role: true } } }
+  });
+
+  const hasAdminAccess = profile?.isSuperAdmin || (profile?.userRoles || []).some(ur => ur.role?.code === 'ADMIN' || ur.role?.code === 'SUPER_ADMIN');
+
+  if (!hasAdminAccess) {
+    const error = new Error('Access denied. You do not have administrative privileges.');
+    error.status = 403;
+    throw error;
+  }
+
+  const code = createOtpCode();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 mins for SMS
+
+  console.log('\n[DEV] SMS OTP: ' + code + ' for ' + normalizedPhone + '\n');
+
+  await prisma.adminOtpChallenge.create({
+    data: {
+      identifier: normalizedPhone,
+      channel: OTP_CHANNELS.SMS,
+      purpose: ADMIN_OTP_PURPOSE,
+      codeHash: hashOtp(code),
+      expiresAt,
+      ipAddress,
+      userAgent,
+    },
+  });
+
+  // TODO: Integrate real SMS gateway
+  
+  await log({
+    action: 'SEND_SMS_OTP',
+    module: 'admin_auth',
+    description: `SMS OTP requested for ${normalizedPhone}`,
+    ip: ipAddress,
+    ua: userAgent,
+  });
+
+  return { channel: OTP_CHANNELS.SMS, expiresInMinutes: 5 };
 }
 
 async function verifyEmailLoginOtp({ email, otp, ipAddress = null, userAgent = null }) {
@@ -205,9 +244,9 @@ async function verifyEmailLoginOtp({ email, otp, ipAddress = null, userAgent = n
 
   const challenge = await prisma.adminOtpChallenge.findFirst({
     where: {
-      email: normalizedEmail,
-      purpose: EMAIL_OTP_PURPOSE,
-      channel: EMAIL_OTP_CHANNEL,
+      identifier: normalizedEmail,
+      purpose: ADMIN_OTP_PURPOSE,
+      channel: OTP_CHANNELS.EMAIL,
       consumedAt: null,
     },
     orderBy: { createdAt: 'desc' },
@@ -234,11 +273,8 @@ async function verifyEmailLoginOtp({ email, otp, ipAddress = null, userAgent = n
   if (challenge.codeHash !== hashOtp(normalizedOtp)) {
     await prisma.adminOtpChallenge.update({
       where: { id: challenge.id },
-      data: {
-        attempts: { increment: 1 },
-      },
+      data: { attempts: { increment: 1 } },
     });
-
     const error = new Error('Invalid OTP');
     error.status = 401;
     throw error;
@@ -246,23 +282,19 @@ async function verifyEmailLoginOtp({ email, otp, ipAddress = null, userAgent = n
 
   await prisma.adminOtpChallenge.update({
     where: { id: challenge.id },
-    data: {
-      consumedAt: new Date(),
-      attempts: { increment: 1 },
-    },
+    data: { consumedAt: new Date(), attempts: { increment: 1 } },
   });
 
-  const uid = await ensureFirebaseEmailUser(normalizedEmail);
+  const uid = await ensureFirebaseUser({ email: normalizedEmail });
   const profile = await upsertAdminProfile({
     uid,
     email: normalizedEmail,
     emailVerified: true,
-    phoneVerified: false,
   });
 
   const customToken = await admin.auth().createCustomToken(uid, {
     adminAuth: true,
-    loginChannel: EMAIL_OTP_CHANNEL,
+    loginChannel: OTP_CHANNELS.EMAIL,
   });
 
   await log({
@@ -282,6 +314,92 @@ async function verifyEmailLoginOtp({ email, otp, ipAddress = null, userAgent = n
       email: normalizedEmail,
       emailVerified: true,
       phoneVerified: profile.phoneVerified,
+    },
+  };
+}
+
+async function verifyPhoneLoginOtp({ phone, otp, ipAddress = null, userAgent = null }) {
+  const normalizedPhone = normalizePhone(phone);
+  const normalizedOtp = String(otp || '').trim();
+
+  if (!normalizedPhone || !normalizedOtp) {
+    const error = new Error('Phone and OTP are required');
+    error.status = 400;
+    throw error;
+  }
+
+  const challenge = await prisma.adminOtpChallenge.findFirst({
+    where: {
+      identifier: normalizedPhone,
+      purpose: ADMIN_OTP_PURPOSE,
+      channel: OTP_CHANNELS.SMS,
+      consumedAt: null,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!challenge) {
+    const error = new Error('No active OTP found for this phone number.');
+    error.status = 404;
+    throw error;
+  }
+
+  if (challenge.expiresAt.getTime() < Date.now()) {
+    const error = new Error('OTP has expired.');
+    error.status = 410;
+    throw error;
+  }
+
+  if (challenge.attempts >= 5) { // Hardcoded limit for SMS
+    const error = new Error('Too many OTP attempts.');
+    error.status = 429;
+    throw error;
+  }
+
+  if (challenge.codeHash !== hashOtp(normalizedOtp)) {
+    await prisma.adminOtpChallenge.update({
+      where: { id: challenge.id },
+      data: { attempts: { increment: 1 } },
+    });
+    const error = new Error('Invalid OTP');
+    error.status = 401;
+    throw error;
+  }
+
+  await prisma.adminOtpChallenge.update({
+    where: { id: challenge.id },
+    data: { consumedAt: new Date(), attempts: { increment: 1 } },
+  });
+
+  const uid = await ensureFirebaseUser({ phone: normalizedPhone });
+  const profile = await upsertAdminProfile({
+    uid,
+    phone: normalizedPhone,
+    phoneVerified: true,
+  });
+
+  const customToken = await admin.auth().createCustomToken(uid, {
+    adminAuth: true,
+    loginChannel: OTP_CHANNELS.SMS,
+  });
+
+  await log({
+    userId: uid,
+    action: 'VERIFY_SMS_OTP',
+    module: 'admin_auth',
+    entityId: challenge.id,
+    description: `SMS OTP verified for ${normalizedPhone}`,
+    ip: ipAddress,
+    ua: userAgent,
+  });
+
+  return {
+    customToken,
+    user: {
+      id: uid,
+      phone: normalizedPhone,
+      phoneVerified: true,
+      emailVerified: profile.emailVerified,
     },
   };
 }
@@ -335,7 +453,9 @@ module.exports = {
   normalizeEmail,
   normalizePhone,
   sendEmailLoginOtp,
+  sendPhoneLoginOtp,
   syncAdminProfileFromToken,
   validateRoleScope,
   verifyEmailLoginOtp,
+  verifyPhoneLoginOtp,
 };
