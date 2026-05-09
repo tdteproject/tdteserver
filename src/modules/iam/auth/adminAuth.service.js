@@ -80,6 +80,26 @@ async function upsertAdminProfile({
   const normalizedEmail = email ? normalizeEmail(email) : null;
   const normalizedPhone = phone ? normalizePhone(phone) : null;
 
+  // Check if a profile with this email already exists but with a DIFFERENT ID
+  if (normalizedEmail) {
+    const existingWithEmail = await prisma.profile.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (existingWithEmail && existingWithEmail.id !== uid) {
+      console.warn(`[AdminAuth] Identity Conflict: Email ${normalizedEmail} is owned by ${existingWithEmail.id}, but Firebase says it belongs to ${uid}. Migrating...`);
+      
+      // For safety in this specific migration: 
+      // We'll update the existing record to the new UID if possible, or just re-assign the email.
+      // Since changing PKs is hard, we'll delete the old empty/conflicting profile and create the new one,
+      // or just re-link the email if the current UID exists.
+      await prisma.profile.update({
+        where: { id: existingWithEmail.id },
+        data: { email: null }, // Free up the email
+      });
+    }
+  }
+
   return prisma.profile.upsert({
     where: { id: uid },
     update: {
