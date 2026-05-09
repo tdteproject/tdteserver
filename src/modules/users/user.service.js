@@ -18,6 +18,15 @@ const saveProfile = async (userId, phone, profileData) => {
     if (Object.prototype.hasOwnProperty.call(profileData, 'profilePicture')) {
         mappedData.profilePicture = profileData.profilePicture ?? null;
     }
+    if (Object.prototype.hasOwnProperty.call(profileData, 'email')) {
+        mappedData.email = profileData.email ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(profileData, 'emailVerified')) {
+        mappedData.emailVerified = Boolean(profileData.emailVerified);
+    }
+    if (Object.prototype.hasOwnProperty.call(profileData, 'phoneVerified')) {
+        mappedData.phoneVerified = Boolean(profileData.phoneVerified);
+    }
 
     console.log('[UserService] Saving profile for UID:', userId);
 
@@ -94,6 +103,15 @@ const updateAdminUser = async (id, profileData = {}) => {
 
     if (Object.prototype.hasOwnProperty.call(profileData, 'isSuperAdmin')) {
         mappedData.isSuperAdmin = Boolean(profileData.isSuperAdmin);
+    }
+    if (Object.prototype.hasOwnProperty.call(profileData, 'email')) {
+        mappedData.email = profileData.email ? String(profileData.email).trim().toLowerCase() : null;
+    }
+    if (Object.prototype.hasOwnProperty.call(profileData, 'emailVerified')) {
+        mappedData.emailVerified = Boolean(profileData.emailVerified);
+    }
+    if (Object.prototype.hasOwnProperty.call(profileData, 'phoneVerified')) {
+        mappedData.phoneVerified = Boolean(profileData.phoneVerified);
     }
 
     if (Object.keys(mappedData).length === 0) {

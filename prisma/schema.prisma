@@ -17,6 +17,7 @@ datasource db {
 model Profile {
   id        String   @id          // Firebase UID
   phone     String?  @unique      // Phone number as unique identifier for cross-device access
+  email     String?  @unique
   fullName  String?  @map("full_name")
   age       Int?
   gender    String?
@@ -24,6 +25,9 @@ model Profile {
   height         Float?
   profilePicture String?  @map("profile_picture")
   isSuperAdmin   Boolean  @default(false) @map("is_super_admin")
+  emailVerified  Boolean  @default(false) @map("email_verified")
+  phoneVerified  Boolean  @default(false) @map("phone_verified")
+  createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt   @map("updated_at")
 
   activities  FitnessActivity[]
@@ -271,6 +275,7 @@ model Role {
   id          String    @id @default(cuid())
   name        String    @db.VarChar(80)
   code        String    @unique @db.VarChar(80)
+  scope       String    @default("PLATFORM") @db.VarChar(30)
   tenantId    String?   @map("tenant_id")
   description String?   @db.VarChar(255)
   isActive    Boolean   @default(true) @map("is_active")
@@ -425,4 +430,23 @@ model AuditLog {
   @@index([userId])
   @@index([action])
   @@map("audit_logs")
+}
+
+model AdminOtpChallenge {
+  id           String    @id @default(cuid())
+  email        String    @db.VarChar(255)
+  channel      String    @default("EMAIL") @db.VarChar(20)
+  purpose      String    @default("ADMIN_LOGIN") @db.VarChar(50)
+  codeHash     String    @map("code_hash") @db.VarChar(255)
+  expiresAt    DateTime  @map("expires_at")
+  consumedAt   DateTime? @map("consumed_at")
+  attempts     Int       @default(0)
+  lastSentAt   DateTime  @default(now()) @map("last_sent_at")
+  ipAddress    String?   @map("ip_address") @db.VarChar(45)
+  userAgent    String?   @map("user_agent")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([email, purpose, createdAt])
+  @@index([expiresAt])
+  @@map("admin_otp_challenges")
 }

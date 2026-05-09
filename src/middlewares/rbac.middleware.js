@@ -50,7 +50,14 @@ function requirePermission(permissionKey) {
 
         if (!roleId) {
           const userRole = await prisma.userRole.findFirst({
-            where: { userId: uid, isActive: true },
+            where: {
+              userId: uid,
+              isActive: true,
+              role: {
+                isActive: true,
+                deletedAt: null,
+              },
+            },
             select: { roleId: true },
           });
           roleId = userRole?.roleId || null;
@@ -100,7 +107,17 @@ function requirePermission(permissionKey) {
         // resolve role context
         let roleId = req.user?.selectedRole?.id || null;
         if (!roleId) {
-          const userRole = await prisma.userRole.findFirst({ where: { userId: uid, isActive: true }, select: { roleId: true } });
+          const userRole = await prisma.userRole.findFirst({
+            where: {
+              userId: uid,
+              isActive: true,
+              role: {
+                isActive: true,
+                deletedAt: null,
+              },
+            },
+            select: { roleId: true },
+          });
           roleId = userRole?.roleId || null;
         }
 
@@ -110,13 +127,19 @@ function requirePermission(permissionKey) {
           where: { id: roleId },
           include: {
             rolePermissions: {
-              where: { isActive: true },
+              where: {
+                isActive: true,
+                deletedAt: null,
+                permission: {
+                  deletedAt: null,
+                },
+              },
               include: { permission: { select: { action: true, module: { select: { code: true } } } } },
             },
           },
         });
 
-        if (!role || !role.isActive) return next(new ApiError(403, 'Access Denied: Inactive role'));
+        if (!role || !role.isActive || role.deletedAt) return next(new ApiError(403, 'Access Denied: Inactive role'));
 
         const hasAccess = (role.rolePermissions || []).some((rp) => {
           const perm = rp.permission;

@@ -5,6 +5,6 @@ const { verifyToken } = require("../../../middlewares/auth.middleware");
 const requirePermission = require("../../../middlewares/rbac.middleware");
 const { list } = require("./auditLog.controller");
 
-router.get("/", verifyToken, requirePermission(PERMISSIONS.RBAC.USERS.READ), list);
+router.get("/", verifyToken, requirePermission(PERMISSIONS.RBAC.AUDIT_LOGS.READ), list);
 
 module.exports = router;

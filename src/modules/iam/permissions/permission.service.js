@@ -47,7 +47,14 @@ async function getUserPermissions(userId) {
 
   // 1) Get role IDs for user
   const userRoles = await prisma.userRole.findMany({
-    where: { userId, isActive: true },
+    where: {
+      userId,
+      isActive: true,
+      role: {
+        isActive: true,
+        deletedAt: null,
+      },
+    },
     select: { roleId: true },
   });
 
@@ -59,6 +66,10 @@ async function getUserPermissions(userId) {
     where: {
       roleId: { in: roleIds },
       isActive: true,
+      deletedAt: null,
+      permission: {
+        deletedAt: null,
+      },
     },
     select: { permissionId: true },
   });
@@ -68,7 +79,7 @@ async function getUserPermissions(userId) {
 
   // 3) Fetch permission codes
   const perms = await prisma.permission.findMany({
-    where: { id: { in: permissionIds } },
+    where: { id: { in: permissionIds }, deletedAt: null },
     select: { code: true },
   });
 
@@ -81,7 +92,14 @@ async function getPermissionsForRole(roleId) {
 
   // 1) Get permissionIds for the role
   const rolePerms = await prisma.rolePermission.findMany({
-    where: { roleId },
+    where: {
+      roleId,
+      isActive: true,
+      deletedAt: null,
+      permission: {
+        deletedAt: null,
+      },
+    },
     select: { permissionId: true },
   });
 
@@ -90,7 +108,7 @@ async function getPermissionsForRole(roleId) {
 
   // 2) Fetch permission codes
   const perms = await prisma.permission.findMany({
-    where: { id: { in: permissionIds } },
+    where: { id: { in: permissionIds }, deletedAt: null },
     select: { code: true },
   });
 

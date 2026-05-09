@@ -20,6 +20,7 @@ const gpsRoutes = require('../../modules/gps/gps.routes');
 router.use('/bootstrap', require('../../modules/iam/bootstrap/bootstrap.routes'));
 
 // ─── IAM Module Routes ────────────────────────────────────────────────────────
+router.use('/iam/auth', require('../../modules/iam/auth/adminAuth.routes'));
 router.use('/iam/permissions', require('../../modules/iam/permissions/permission.routes'));
 router.use('/iam/roles', require('../../modules/iam/roles/role.routes'));
 router.use('/iam/users', require('../../modules/iam/users/user.routes'));

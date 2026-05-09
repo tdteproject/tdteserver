@@ -17,5 +17,6 @@ router.post("/assign-role-permissions", BootstrapController.assignRolePermission
 
 // 4️⃣ Assign role → user
 router.post("/assign-user-role", BootstrapController.assignUserRole);
+router.post("/sync-pdt-admin-rbac", BootstrapController.syncPdtAdminRbac);
 
 module.exports = router;

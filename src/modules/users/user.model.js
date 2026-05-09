@@ -24,14 +24,18 @@ const upsertProfile = async (userId, phone, data) => {
     }
 
     const normalizedPhone = phone ? String(phone).trim() : null;
+    const normalizedEmail = data.email ? String(data.email).trim().toLowerCase() : null;
     const updateData = {
         ...(normalizedPhone ? { phone: normalizedPhone } : {}),
+        ...(normalizedEmail ? { email: normalizedEmail } : {}),
         ...(Object.prototype.hasOwnProperty.call(data, 'fullName') ? { fullName: data.fullName } : {}),
         ...(Object.prototype.hasOwnProperty.call(data, 'age') ? { age: data.age ? parseInt(data.age, 10) : null } : {}),
         ...(Object.prototype.hasOwnProperty.call(data, 'gender') ? { gender: data.gender } : {}),
         ...(Object.prototype.hasOwnProperty.call(data, 'weight') ? { weight: data.weight ? parseFloat(data.weight) : null } : {}),
         ...(Object.prototype.hasOwnProperty.call(data, 'height') ? { height: data.height ? parseFloat(data.height) : null } : {}),
         ...(Object.prototype.hasOwnProperty.call(data, 'profilePicture') ? { profilePicture: data.profilePicture } : {}),
+        ...(Object.prototype.hasOwnProperty.call(data, 'emailVerified') ? { emailVerified: Boolean(data.emailVerified) } : {}),
+        ...(Object.prototype.hasOwnProperty.call(data, 'phoneVerified') ? { phoneVerified: Boolean(data.phoneVerified) } : {}),
         updatedAt: new Date(),
     };
 
@@ -42,12 +46,15 @@ const upsertProfile = async (userId, phone, data) => {
         create: {
             id: userId,
             phone: normalizedPhone,
+            email: normalizedEmail,
             fullName: data.fullName || null,
             age: data.age ? parseInt(data.age, 10) : null,
             gender: data.gender || null,
             weight: data.weight ? parseFloat(data.weight) : null,
             height: data.height ? parseFloat(data.height) : null,
             profilePicture: data.profilePicture || null,
+            emailVerified: Boolean(data.emailVerified),
+            phoneVerified: Boolean(data.phoneVerified),
         },
     });
 };
@@ -82,31 +89,75 @@ const findProfileByPhone = async (phone) => {
     });
 };
 
+const findProfileByEmail = async (email) => {
+    if (!email) {
+        throw new Error('Email is required');
+    }
+
+    return prisma.profile.findUnique({
+        where: { email: String(email).trim().toLowerCase() },
+    });
+};
+
 const getAllUsers = async (filters = {}) => {
-    const { search } = filters;
+    const { search, startDate, endDate, emailVerified, phoneVerified, isSuperAdmin, status } = filters;
     
-    let whereClause = {};
+    const whereClause = {};
     
     if (search) {
-        whereClause = {
-            OR: [
-                { fullName: { contains: search, mode: 'insensitive' } },
-                { phone: { contains: search } },
-                { id: { contains: search } }, // Search by UID too
-            ],
-        };
+        whereClause.OR = [
+            { fullName: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search } },
+            { id: { contains: search } },
+        ];
+    }
+
+    if (emailVerified !== undefined && emailVerified !== '') {
+        whereClause.emailVerified = String(emailVerified) === 'true';
+    }
+
+    if (phoneVerified !== undefined && phoneVerified !== '') {
+        whereClause.phoneVerified = String(phoneVerified) === 'true';
+    }
+
+    if (isSuperAdmin !== undefined && isSuperAdmin !== '') {
+        whereClause.isSuperAdmin = String(isSuperAdmin) === 'true';
+    }
+
+    if (startDate || endDate) {
+        whereClause.createdAt = {};
+        if (startDate) whereClause.createdAt.gte = new Date(startDate);
+        if (endDate) whereClause.createdAt.lte = new Date(endDate);
     }
     
-    return prisma.profile.findMany({
+    const users = await prisma.profile.findMany({
         where: whereClause,
         include: {
             userRoles: {
+                where: {
+                    isActive: true,
+                    role: {
+                        isActive: true,
+                        deletedAt: null,
+                    },
+                },
                 include: {
                     role: true
                 }
             }
         },
         orderBy: { updatedAt: 'desc' }
+    });
+
+    if (!status) {
+        return users;
+    }
+
+    const wantsActive = String(status).toUpperCase() === 'ACTIVE';
+    return users.filter((user) => {
+        const hasActiveRole = (user.userRoles || []).length > 0 || user.isSuperAdmin;
+        return wantsActive ? hasActiveRole : !hasActiveRole;
     });
 };
 
@@ -115,6 +166,13 @@ const getUserById = async (id) => {
         where: { id },
         include: {
             userRoles: {
+                where: {
+                    isActive: true,
+                    role: {
+                        isActive: true,
+                        deletedAt: null,
+                    },
+                },
                 include: {
                     role: true
                 }
@@ -129,6 +187,13 @@ const updateUserById = async (id, data = {}) => {
         data,
         include: {
             userRoles: {
+                where: {
+                    isActive: true,
+                    role: {
+                        isActive: true,
+                        deletedAt: null,
+                    },
+                },
                 include: {
                     role: true,
                 },
@@ -154,6 +219,7 @@ const migrateProfileId = async (oldId, newId) => {
 module.exports = {
     upsertProfile,
     findProfileByPhone,
+    findProfileByEmail,
     findProfileById,
     getAllUsers,
     getUserById,

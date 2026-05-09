@@ -3,11 +3,12 @@
 const prisma = require('../../../config/db');
 const { generateCodeFromName } = require('../../../utils/generateCode');
 const { log } = require('../../../utils/auditLogger');
+const { validateRoleScope } = require('../auth/adminAuth.service');
 
 /**
  * Create role with permissions
  */
-async function createRole({ name, description, tenantId, userId, permissions = [] }) {
+async function createRole({ name, description, scope, tenantId, userId, permissions = [] }) {
   if (!name) {
     const err = new Error("Role name is required");
     err.status = 400;
@@ -15,12 +16,27 @@ async function createRole({ name, description, tenantId, userId, permissions = [
   }
 
   const code = generateCodeFromName(name);
+  const normalizedScope = validateRoleScope(scope);
+  const existingRole = await prisma.role.findFirst({
+    where: {
+      code,
+      deletedAt: null,
+    },
+    select: { id: true },
+  });
+
+  if (existingRole) {
+    const err = new Error("Role code already exists");
+    err.status = 409;
+    throw err;
+  }
 
   return prisma.$transaction(async (tx) => {
     const role = await tx.role.create({
       data: {
         name,
         code,
+        scope: normalizedScope,
         tenantId: tenantId || null,
         description: description || null,
         isActive: true,
@@ -30,7 +46,8 @@ async function createRole({ name, description, tenantId, userId, permissions = [
     });
 
     if (permissions.length) {
-      const rows = permissions.map((permissionId) => ({
+      const permissionIds = [...new Set(permissions)];
+      const rows = permissionIds.map((permissionId) => ({
         roleId: role.id,
         permissionId,
       }));
@@ -55,7 +72,7 @@ async function createRole({ name, description, tenantId, userId, permissions = [
 /**
  * Update role + sync permissions
  */
-async function updateRole({ id, name, description, permissions, userId }) {
+async function updateRole({ id, name, description, scope, permissions, userId }) {
   const role = await prisma.role.findUnique({ where: { id } });
 
   if (!role) {
@@ -65,6 +82,7 @@ async function updateRole({ id, name, description, permissions, userId }) {
   }
 
   const oldRole = { ...role };
+  const normalizedScope = validateRoleScope(scope || role.scope);
 
   return prisma.$transaction(async (tx) => {
     // Update role basic info
@@ -73,6 +91,7 @@ async function updateRole({ id, name, description, permissions, userId }) {
       data: {
         name,
         description,
+        scope: normalizedScope,
         updatedBy: userId,
       },
     });
@@ -80,7 +99,7 @@ async function updateRole({ id, name, description, permissions, userId }) {
     // Sync Permissions
     if (permissions) {
       const existing = await tx.rolePermission.findMany({
-        where: { roleId: id },
+        where: { roleId: id, deletedAt: null },
         select: { permissionId: true },
       });
 
@@ -113,7 +132,7 @@ async function updateRole({ id, name, description, permissions, userId }) {
       module: "roles",
       entityId: role.id,
       oldValues: oldRole,
-      newValues: { name, description, permissions },
+      newValues: { name, description, scope: normalizedScope, permissions },
       description: `Role '${role.name}' updated`,
     });
 
@@ -125,7 +144,7 @@ async function updateRole({ id, name, description, permissions, userId }) {
  * List roles with pagination, search, and filters
  */
 async function listRoles(query) {
-  let { search, page = 1, limit = 10, startDate, endDate, status } = query;
+  let { search, page = 1, limit = 10, startDate, endDate, status, scope } = query;
 
   page = parseInt(page);
   limit = parseInt(limit);
@@ -146,6 +165,7 @@ async function listRoles(query) {
   // Status filter
   if (status === "ACTIVE") where.isActive = true;
   if (status === "INACTIVE") where.isActive = false;
+  if (scope) where.scope = validateRoleScope(scope);
 
   // Date filter
   if (startDate || endDate) {
@@ -162,12 +182,20 @@ async function listRoles(query) {
         code: true,
         name: true,
         description: true,
+        scope: true,
         isActive: true,
         createdBy: true,
         updatedBy: true,
         createdAt: true,
         updatedAt: true,
         rolePermissions: {
+          where: {
+            isActive: true,
+            deletedAt: null,
+            permission: {
+              deletedAt: null,
+            },
+          },
           select: { permissionId: true },
         },
       },
@@ -185,6 +213,9 @@ async function listRoles(query) {
       code: role.code,
       isActive: role.isActive,
       description: role.description,
+      scope: role.scope,
+      createdAt: role.createdAt,
+      updatedAt: role.updatedAt,
       permissions: role.rolePermissions.map((p) => p.permissionId),
     })),
     pagination: {
@@ -207,6 +238,13 @@ async function getRole({ id, tenantId }) {
     where,
     include: {
       rolePermissions: {
+        where: {
+          isActive: true,
+          deletedAt: null,
+          permission: {
+            deletedAt: null,
+          },
+        },
         select: { permissionId: true, permission: { select: { id: true, code: true, action: true } } },
       },
     },
@@ -223,6 +261,7 @@ async function getRole({ id, tenantId }) {
     name: role.name,
     code: role.code,
     description: role.description,
+    scope: role.scope,
     permissions: role.rolePermissions.map((rp) => rp.permissionId),
   };
 }

@@ -14,8 +14,8 @@ async function assignRoleToUser({ userId, roleId }) {
   const user = await prisma.profile.findUnique({ where: { id: userId } });
   if (!user) throw new ApiError(404, "User not found");
 
-  const role = await prisma.role.findUnique({ where: { id: roleId } });
-  if (!role) throw new ApiError(404, "Role not found");
+  const role = await prisma.role.findFirst({ where: { id: roleId, deletedAt: null, isActive: true } });
+  if (!role) throw new ApiError(404, "Role not found or inactive");
 
   // Upsert to avoid duplicate errors
   const existing = await prisma.userRole.findUnique({
@@ -51,10 +51,10 @@ async function attachPermissionToRole({ roleId, permissionId }) {
     throw new ApiError(400, "roleId and permissionId required");
   }
 
-  const role = await prisma.role.findUnique({ where: { id: roleId } });
-  if (!role) throw new ApiError(404, "Role not found");
+  const role = await prisma.role.findFirst({ where: { id: roleId, deletedAt: null, isActive: true } });
+  if (!role) throw new ApiError(404, "Role not found or inactive");
 
-  const perm = await prisma.permission.findUnique({ where: { id: permissionId } });
+  const perm = await prisma.permission.findFirst({ where: { id: permissionId, deletedAt: null } });
   if (!perm) throw new ApiError(404, "Permission not found");
 
   // Upsert to avoid duplicate errors
@@ -101,12 +101,25 @@ async function getUserEffectivePermissions({ userId }) {
 
   // Get all roles for user, then all permissions for those roles
   const userRoles = await prisma.userRole.findMany({
-    where: { userId, isActive: true },
+    where: {
+      userId,
+      isActive: true,
+      role: {
+        isActive: true,
+        deletedAt: null,
+      },
+    },
     include: {
       role: {
         include: {
           rolePermissions: {
-            where: { isActive: true },
+            where: {
+              isActive: true,
+              deletedAt: null,
+              permission: {
+                deletedAt: null,
+              },
+            },
             include: {
               permission: { select: { code: true } },
             },

@@ -61,6 +61,7 @@ const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const databaseUrl = process.env.DATABASE_URL || '';
 const directDatabaseUrl = process.env.DIRECT_URL || process.env.DIRECT_DATABASE_URL || null;
+const smtpPort = parseNumber(process.env.SMTP_PORT, 587);
 
 module.exports = {
     appEnv,
@@ -91,6 +92,16 @@ module.exports = {
         serviceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH,
         serviceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
     },
+    smtp: {
+        service: process.env.SMTP_SERVICE || '',
+        host: process.env.SMTP_HOST || '',
+        port: smtpPort,
+        secure: parseBoolean(process.env.SMTP_SECURE, smtpPort === 465),
+        user: process.env.SMTP_USER || '',
+        pass: process.env.SMTP_PASS || '',
+        fromEmail: process.env.OTP_FROM_EMAIL || process.env.SMTP_USER || '',
+        fromName: process.env.OTP_FROM_NAME || 'PDT Admin',
+    },
     security: {
         trustProxy: parseBoolean(process.env.TRUST_PROXY, isProduction),
         enforceHttps: parseBoolean(process.env.ENFORCE_HTTPS, isProduction),
@@ -103,6 +114,8 @@ module.exports = {
         apiLimiterMax: parseNumber(process.env.API_LIMIT_MAX, 120),
         writeLimiterWindowMs: parseNumber(process.env.WRITE_LIMIT_WINDOW_MS, 60 * 1000),
         writeLimiterMax: parseNumber(process.env.WRITE_LIMIT_MAX, 30),
+        emailOtpExpiresMinutes: parseNumber(process.env.EMAIL_OTP_EXPIRES_MINUTES, 10),
+        emailOtpMaxAttempts: parseNumber(process.env.EMAIL_OTP_MAX_ATTEMPTS, 5),
     },
     activeBaseUrl: `http://${host}:${port}`,
 };

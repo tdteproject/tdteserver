@@ -53,10 +53,19 @@ async function assignUserRole(req, res, next) {
   } catch (e) { next(e); }
 }
 
+async function syncPdtAdminRbac(req, res, next) {
+  try {
+    assertBootstrapSecret(req);
+    const data = await service.syncPdtAdminRbac(req.body || {});
+    res.json({ success: true, message: "PDT admin RBAC catalog synchronized", data });
+  } catch (e) { next(e); }
+}
+
 module.exports = {
   createSuperAdmin,
   createPermissions,
   createRole,
   assignRolePermissions,
   assignUserRole,
+  syncPdtAdminRbac,
 };
