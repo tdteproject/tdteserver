@@ -71,7 +71,11 @@ const upsertDailyActivity = async (phone, metrics, goals) => {
     };
 
     const result = await activityModel.upsertDailyActivity(phone, today, data);
-    return transformActivityRecord(result);
+    const socketService = require('../../services/socket.service');
+    const transformed = transformActivityRecord(result);
+    socketService.emitToUser(transformed.userId, 'activity:update', transformed);
+
+    return transformed;
 };
 
 /**

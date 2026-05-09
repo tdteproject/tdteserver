@@ -142,7 +142,11 @@ const logHeartRate = async (userId, data) => {
         sessionId,
     });
 
-    return transformHeartRateRecord(record);
+    const socketService = require('../../services/socket.service');
+    const transformed = transformHeartRateRecord(record);
+    socketService.emitToUser(userId, 'heartRate:update', transformed);
+
+    return transformed;
 };
 
 /**

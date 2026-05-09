@@ -39,6 +39,10 @@ async function startServer() {
         console.log('');
     });
 
+    // Initialize Socket.io
+    const socketService = require('./src/services/socket.service');
+    socketService.init(server);
+
     server.on('error', (err) => {
         if (err.code === 'EADDRINUSE') {
             console.error(`[Server] FATAL: Port ${env.port} is already in use.`);
