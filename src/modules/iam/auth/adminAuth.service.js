@@ -107,8 +107,8 @@ async function upsertAdminProfile({
     update: {
       ...(normalizedEmail ? { email: normalizedEmail } : {}),
       ...(normalizedPhone ? { phone: normalizedPhone } : {}),
-      emailVerified,
-      phoneVerified,
+      ...(emailVerified ? { emailVerified: true } : {}),
+      ...(phoneVerified ? { phoneVerified: true } : {}),
     },
     create: {
       id: uid,
@@ -546,7 +546,7 @@ async function verifyPhoneVerificationOtp({ userId, phone, otp, ipAddress = null
 }
 
 async function updateAdminProfile(userId, data = {}) {
-  const allowedFields = ['fullName', 'profilePicture'];
+  const allowedFields = ['fullName', 'profilePicture', 'phone', 'phoneVerified', 'emailVerified'];
   const updateData = {};
 
   allowedFields.forEach(field => {
