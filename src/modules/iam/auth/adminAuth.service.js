@@ -89,12 +89,6 @@ async function upsertAdminProfile({
 }
 
 async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) {
-  if (!isMailConfigured()) {
-    const error = new Error('Email OTP is not configured. Add Gmail SMTP credentials on the backend.');
-    error.status = 503;
-    throw error;
-  }
-
   const normalizedEmail = normalizeEmail(email);
   if (!normalizedEmail) {
     const error = new Error('Email is required');
@@ -104,6 +98,16 @@ async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) 
 
   const code = createOtpCode();
   const expiresAt = new Date(Date.now() + env.security.emailOtpExpiresMinutes * 60 * 1000);
+
+  if (!isMailConfigured()) {
+    console.log('');
+    console.log('╔════════════════════════════════════════════════════════════════╗');
+    console.log('║  [DEVELOPMENT MODE] EMAIL OTP LOGGED TO CONSOLE                ║');
+    console.log(`║  Target Email: ${normalizedEmail.padEnd(47)} ║`);
+    console.log(`║  OTP CODE:     ${code.padEnd(47)} ║`);
+    console.log('╚════════════════════════════════════════════════════════════════╝');
+    console.log('');
+  }
 
   await prisma.adminOtpChallenge.create({
     data: {
@@ -117,11 +121,13 @@ async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) 
     },
   });
 
-  await sendEmailOtp({
-    to: normalizedEmail,
-    code,
-    expiresInMinutes: env.security.emailOtpExpiresMinutes,
-  });
+  if (isMailConfigured()) {
+    await sendEmailOtp({
+      to: normalizedEmail,
+      code,
+      expiresInMinutes: env.security.emailOtpExpiresMinutes,
+    });
+  }
 
   await log({
     action: 'SEND_EMAIL_OTP',
