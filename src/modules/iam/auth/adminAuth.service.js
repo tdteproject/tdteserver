@@ -562,7 +562,21 @@ async function updateAdminProfile(userId, data = {}) {
     data: updateData,
   });
 }
+function validateRoleScope(scope) {
+  if (!scope) return 'PLATFORM';
+  const normalizedScope = String(scope).trim().toUpperCase();
+  if (!ALLOWED_ROLE_SCOPES.has(normalizedScope)) {
+    const error = new Error('Invalid role scope');
+    error.status = 400;
+    throw error;
+  }
+  return normalizedScope;
+}
 
+module.exports = {
+  buildEmailAdminUid,
+  normalizeEmail,
+  normalizePhone,
   requestPhoneVerificationOtp,
   sendEmailLoginOtp,
   sendPhoneLoginOtp,
