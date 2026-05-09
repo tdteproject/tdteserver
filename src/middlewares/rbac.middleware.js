@@ -13,21 +13,22 @@ async function resolvePermissionsForRequest(req) {
 
   const profile = await prisma.profile.findUnique({
     where: { id: uid },
-    select: { isSuperAdmin: true },
+    select: { isSuperAdmin: true, selectedRoleId: true },
   });
 
   if (!profile) {
     throw new ApiError(401, "User profile not found");
   }
 
-  if (profile.isSuperAdmin) {
+  // Super Admin gets full access ONLY if they haven't explicitly switched to a restricted role
+  if (profile.isSuperAdmin && !profile.selectedRoleId) {
     return { isSuperAdmin: true, permissions: [] };
   }
 
   let permissions = req._rbacPermissions;
 
   if (!permissions) {
-    let roleId = req.user?.selectedRole?.id || null;
+    let roleId = profile.selectedRoleId;
 
     if (!roleId) {
       const userRole = await prisma.userRole.findFirst({

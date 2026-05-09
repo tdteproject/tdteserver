@@ -27,14 +27,23 @@ async function list(req, res, next) {
 
 async function listModulesFeaturesPermissions(req, res, next) {
   try {
-    let roleId = req.params.roleId || req.user?.selectedRole?.id || null;
+    let roleId = req.params.roleId;
 
     if (!roleId && req.user?.uid) {
-      const activeRole = await prisma.userRole.findFirst({
-        where: { userId: req.user.uid, isActive: true },
-        select: { roleId: true },
+      const profile = await prisma.profile.findUnique({
+        where: { id: req.user.uid },
+        select: { selectedRoleId: true }
       });
-      roleId = activeRole?.roleId || null;
+      
+      if (profile?.selectedRoleId) {
+        roleId = profile.selectedRoleId;
+      } else {
+        const activeRole = await prisma.userRole.findFirst({
+          where: { userId: req.user.uid, isActive: true },
+          select: { roleId: true },
+        });
+        roleId = activeRole?.roleId || null;
+      }
     }
 
     const data = await getModulesFeaturesPermissions(roleId);
