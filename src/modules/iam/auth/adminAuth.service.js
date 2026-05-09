@@ -126,6 +126,26 @@ async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) 
     throw error;
   }
 
+  // Check if the user exists and has a PLATFORM-level role (Admin or Super Admin)
+  const profile = await prisma.profile.findUnique({
+    where: { email: normalizedEmail },
+    include: {
+      userRoles: {
+        include: {
+          role: true
+        }
+      }
+    }
+  });
+
+  const hasAdminAccess = profile?.isSuperAdmin || (profile?.userRoles || []).some(ur => ur.role?.code === 'ADMIN' || ur.role?.code === 'SUPER_ADMIN');
+
+  if (!hasAdminAccess) {
+    const error = new Error('Access denied. You do not have administrative privileges.');
+    error.status = 403;
+    throw error;
+  }
+
   const code = createOtpCode();
   const expiresAt = new Date(Date.now() + env.security.emailOtpExpiresMinutes * 60 * 1000);
 
