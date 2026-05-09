@@ -31,10 +31,22 @@ function buildEmailAdminUid(email) {
 }
 
 async function ensureFirebaseEmailUser(email) {
+  let firebaseUser;
+  try {
+    firebaseUser = await admin.auth().getUserByEmail(email);
+  } catch (error) {
+    if (error.code !== 'auth/user-not-found') throw error;
+  }
+
+  if (firebaseUser) {
+    return firebaseUser.uid;
+  }
+
   const existingProfile = await prisma.profile.findFirst({
     where: { email },
     select: { id: true },
   });
+
   const uid = existingProfile?.id || buildEmailAdminUid(email);
 
   try {
@@ -45,19 +57,17 @@ async function ensureFirebaseEmailUser(email) {
         emailVerified: true,
       });
     }
+    return uid;
   } catch (error) {
-    if (error.code !== 'auth/user-not-found') {
-      throw error;
-    }
+    if (error.code !== 'auth/user-not-found') throw error;
 
     await admin.auth().createUser({
       uid,
       email,
       emailVerified: true,
     });
+    return uid;
   }
-
-  return uid;
 }
 
 async function upsertAdminProfile({
