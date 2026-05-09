@@ -6,17 +6,18 @@ async function main() {
 
   // 1. Create Core Modules
   const modules = [
-    { name: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard' },
-    { name: 'Users', path: '/users', icon: 'Users' },
-    { name: 'Health Records', path: '/records', icon: 'FileText' },
-    { name: 'Fitness Tracking', path: '/fitness', icon: 'Activity' },
-    { name: 'IAM', path: '/iam', icon: 'ShieldCheck' },
-    { name: 'Audit Logs', path: '/audit-logs', icon: 'History' },
+    { name: 'Dashboard', code: 'DASHBOARD', path: '/dashboard', icon: 'LayoutDashboard' },
+    { name: 'Users', code: 'USERS', path: '/users', icon: 'Users' },
+    { name: 'Health Records', code: 'HEALTH_RECORDS', path: '/records', icon: 'FileText' },
+    { name: 'Fitness Tracking', code: 'FITNESS_TRACKING', path: '/fitness', icon: 'Activity' },
+    { name: 'Roles', code: 'ROLES', path: '/iam/roles', icon: 'ShieldCheck' },
+    { name: 'Modules', code: 'MODULES', path: '/iam/modules', icon: 'Settings' },
+    { name: 'Audit Logs', code: 'AUDIT_LOGS', path: '/audit-logs', icon: 'History' },
   ];
 
   console.log('Creating modules and permissions...');
   for (const m of modules) {
-    const code = m.name.toUpperCase().replace(/\s+/g, '_');
+    const code = m.code || m.name.toUpperCase().replace(/\s+/g, '_');
     const existing = await prisma.module.findUnique({ where: { code } });
     
     if (!existing) {
