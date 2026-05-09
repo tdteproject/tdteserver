@@ -15,7 +15,8 @@
     "supabase:migrate:storage": "node .\\scripts\\migrate-storage-to-supabase.js --apply",
     "supabase:migrate:storage:dry": "node .\\scripts\\migrate-storage-to-supabase.js --dry-run",
     "env:local": ".\\scripts\\switch-env.bat local",
-    "env:cloud": ".\\scripts\\switch-env.bat cloud"
+    "env:cloud": ".\\scripts\\switch-env.bat cloud",
+    "postinstall": "prisma generate"
   },
   "keywords": [],
   "author": "",
