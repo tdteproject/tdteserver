@@ -23,12 +23,6 @@ const PERMISSIONS = {
     AUDIT_LOGS: {
       READ: "AUDIT_LOGS.READ",
     },
-    FEATURES: {
-      READ: "FEATURES.READ",
-      WRITE: "FEATURES.WRITE",
-      UPDATE: "FEATURES.UPDATE",
-      DELETE: "FEATURES.DELETE",
-    },
   },
 
   PLATFORM_PERMISSION: {

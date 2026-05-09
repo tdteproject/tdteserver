@@ -8,8 +8,18 @@ const { list, getOne, create, update, remove, listModulesFeaturesPermissions, li
 /* Base path: /api/v1/iam/modules */
 
 router.get("/", verifyToken, requirePermission(PERMISSIONS.RBAC.MODULES.READ), list);
-router.get("/my-config", verifyToken, requirePermission(PERMISSIONS.RBAC.MODULES.READ), listModulesFeaturesPermissions);
-router.get("/all-config", verifyToken, requirePermission(PERMISSIONS.RBAC.MODULES.READ), listAllModulesFeaturesPermissions);
+router.get("/my-config", verifyToken, listModulesFeaturesPermissions);
+router.get(
+  "/all-config",
+  verifyToken,
+  requirePermission.any([
+    PERMISSIONS.RBAC.MODULES.READ,
+    PERMISSIONS.RBAC.ROLES.READ,
+    PERMISSIONS.RBAC.ROLES.WRITE,
+    PERMISSIONS.RBAC.ROLES.UPDATE,
+  ]),
+  listAllModulesFeaturesPermissions
+);
 router.get("/:roleId/my-config", verifyToken, requirePermission(PERMISSIONS.RBAC.MODULES.READ), listModulesFeaturesPermissions);
 router.get("/:id", verifyToken, requirePermission(PERMISSIONS.RBAC.MODULES.READ), getOne);
 router.post("/", verifyToken, requirePermission(PERMISSIONS.RBAC.MODULES.WRITE), create);
