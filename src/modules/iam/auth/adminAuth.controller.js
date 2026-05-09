@@ -4,6 +4,9 @@ const {
   syncAdminProfileFromToken,
   verifyEmailLoginOtp,
   verifyPhoneLoginOtp,
+  requestPhoneVerificationOtp,
+  verifyPhoneVerificationOtp,
+  updateAdminProfile,
 } = require('./adminAuth.service');
 
 async function sendEmailOtp(req, res, next) {
@@ -80,6 +83,45 @@ async function verifyPhoneOtp(req, res, next) {
   }
 }
 
+async function requestPhoneVerification(req, res, next) {
+  try {
+    const data = await requestPhoneVerificationOtp({
+      userId: req.user.uid,
+      phone: req.body?.phone,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] || null,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Verification OTP sent successfully',
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function verifyPhoneVerification(req, res, next) {
+  try {
+    const data = await verifyPhoneVerificationOtp({
+      userId: req.user.uid,
+      phone: req.body?.phone,
+      otp: req.body?.otp,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] || null,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Phone number verified successfully',
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function syncProfile(req, res, next) {
   try {
     const data = await syncAdminProfileFromToken(req.user);
@@ -94,10 +136,27 @@ async function syncProfile(req, res, next) {
   }
 }
 
+async function updateProfile(req, res, next) {
+  try {
+    const data = await updateAdminProfile(req.user.uid, req.body);
+
+    return res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   sendEmailOtp,
   sendPhoneOtp,
   syncProfile,
   verifyEmailOtp,
   verifyPhoneOtp,
+  requestPhoneVerification,
+  verifyPhoneVerification,
+  updateProfile,
 };

@@ -437,25 +437,139 @@ async function syncAdminProfileFromToken(user = {}) {
   });
 }
 
-function validateRoleScope(scope) {
-  if (!scope) return 'PLATFORM';
-  const normalizedScope = String(scope).trim().toUpperCase();
-  if (!ALLOWED_ROLE_SCOPES.has(normalizedScope)) {
-    const error = new Error('Invalid role scope');
+async function requestPhoneVerificationOtp({ userId, phone, ipAddress = null, userAgent = null }) {
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) {
+    const error = new Error('Phone number is required');
     error.status = 400;
     throw error;
   }
-  return normalizedScope;
+
+  const code = createOtpCode();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+  console.log('\n[DEV] PHONE VERIFICATION OTP: ' + code + ' for ' + normalizedPhone + '\n');
+
+  await prisma.adminOtpChallenge.create({
+    data: {
+      identifier: normalizedPhone,
+      channel: OTP_CHANNELS.SMS,
+      purpose: 'PHONE_VERIFICATION',
+      codeHash: hashOtp(code),
+      expiresAt,
+      ipAddress,
+      userAgent,
+    },
+  });
+
+  await log({
+    userId,
+    action: 'REQUEST_PHONE_VERIFICATION',
+    module: 'admin_auth',
+    description: `Phone verification OTP requested for ${normalizedPhone}`,
+    ip: ipAddress,
+    ua: userAgent,
+  });
+
+  return { channel: OTP_CHANNELS.SMS, expiresInMinutes: 5 };
 }
 
-module.exports = {
-  buildEmailAdminUid,
-  normalizeEmail,
-  normalizePhone,
+async function verifyPhoneVerificationOtp({ userId, phone, otp, ipAddress = null, userAgent = null }) {
+  const normalizedPhone = normalizePhone(phone);
+  const normalizedOtp = String(otp || '').trim();
+
+  if (!normalizedPhone || !normalizedOtp) {
+    const error = new Error('Phone and OTP are required');
+    error.status = 400;
+    throw error;
+  }
+
+  const challenge = await prisma.adminOtpChallenge.findFirst({
+    where: {
+      identifier: normalizedPhone,
+      purpose: 'PHONE_VERIFICATION',
+      channel: OTP_CHANNELS.SMS,
+      consumedAt: null,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  if (!challenge || challenge.expiresAt.getTime() < Date.now()) {
+    const error = new Error('Invalid or expired OTP');
+    error.status = 400;
+    throw error;
+  }
+
+  if (challenge.codeHash !== hashOtp(normalizedOtp)) {
+    await prisma.adminOtpChallenge.update({
+      where: { id: challenge.id },
+      data: { attempts: { increment: 1 } },
+    });
+    const error = new Error('Invalid OTP');
+    error.status = 401;
+    throw error;
+  }
+
+  await prisma.adminOtpChallenge.update({
+    where: { id: challenge.id },
+    data: { consumedAt: new Date(), attempts: { increment: 1 } },
+  });
+
+  // Update profile
+  await prisma.profile.update({
+    where: { id: userId },
+    data: {
+      phone: normalizedPhone,
+      phoneVerified: true,
+    },
+  });
+
+  // Update Firebase if possible
+  try {
+    await admin.auth().updateUser(userId, {
+      phoneNumber: normalizedPhone,
+    });
+  } catch (error) {
+    console.warn('[AdminAuth] Failed to update Firebase phone:', error.message);
+  }
+
+  await log({
+    userId,
+    action: 'VERIFY_PHONE_VERIFICATION',
+    module: 'admin_auth',
+    description: `Phone number ${normalizedPhone} verified successfully`,
+    ip: ipAddress,
+    ua: userAgent,
+  });
+
+  return { success: true };
+}
+
+async function updateAdminProfile(userId, data = {}) {
+  const allowedFields = ['fullName', 'profilePicture'];
+  const updateData = {};
+
+  allowedFields.forEach(field => {
+    if (Object.prototype.hasOwnProperty.call(data, field)) {
+      updateData[field] = data[field];
+    }
+  });
+
+  if (Object.keys(updateData).length === 0) return null;
+
+  return prisma.profile.update({
+    where: { id: userId },
+    data: updateData,
+  });
+}
+
+  requestPhoneVerificationOtp,
   sendEmailLoginOtp,
   sendPhoneLoginOtp,
   syncAdminProfileFromToken,
+  updateAdminProfile,
   validateRoleScope,
   verifyEmailLoginOtp,
   verifyPhoneLoginOtp,
+  verifyPhoneVerificationOtp,
 };
