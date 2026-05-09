@@ -52,6 +52,22 @@ const saveProfile = async (userId, phone, profileData) => {
 
     const profile = await userModel.upsertProfile(userId, phone, mappedData);
 
+    // Auto-assign USER role if they have no roles
+    const existingRoles = await prisma.userRole.findMany({ where: { userId } });
+    if (existingRoles.length === 0) {
+        const userRoleDef = await prisma.role.findFirst({ where: { code: 'USER', isActive: true, deletedAt: null } });
+        if (userRoleDef) {
+            await prisma.userRole.create({
+                data: {
+                    userId,
+                    roleId: userRoleDef.id,
+                    isActive: true,
+                }
+            });
+            console.log(`[UserService] 🛡️ Auto-assigned USER role to new UID: ${userId}`);
+        }
+    }
+
     console.log('[UserService] Profile saved for UID:', userId);
     return {
         ...profile,

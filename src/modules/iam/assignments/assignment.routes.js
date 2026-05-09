@@ -6,7 +6,9 @@ const requirePermission = require("../../../middlewares/rbac.middleware");
 const AssignmentController = require("./assignment.controller");
 
 router.post("/assign-role", verifyToken, requirePermission(PERMISSIONS.RBAC.USERS.UPDATE), AssignmentController.assignRole);
+router.post("/unassign-role", verifyToken, requirePermission(PERMISSIONS.RBAC.USERS.UPDATE), AssignmentController.unassignRole);
 router.post("/attach-permission", verifyToken, requirePermission(PERMISSIONS.RBAC.ROLES.UPDATE), AssignmentController.attachPermission);
 router.get("/me/permissions", verifyToken, AssignmentController.myPermissions);
+router.post("/select-role", verifyToken, AssignmentController.selectRole);
 
 module.exports = router;

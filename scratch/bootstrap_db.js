@@ -6,47 +6,49 @@ async function main() {
 
   // 1. Create Core Modules
   const modules = [
-    { name: 'Dashboard', code: 'DASHBOARD', path: '/dashboard', icon: 'LayoutDashboard' },
-    { name: 'Users', code: 'USERS', path: '/users', icon: 'Users' },
-    { name: 'Health Records', code: 'HEALTH_RECORDS', path: '/records', icon: 'FileText' },
-    { name: 'Fitness Tracking', code: 'FITNESS_TRACKING', path: '/fitness', icon: 'Activity' },
-    { name: 'Roles', code: 'ROLES', path: '/iam/roles', icon: 'ShieldCheck' },
-    { name: 'Modules', code: 'MODULES', path: '/iam/modules', icon: 'Settings' },
-    { name: 'Audit Logs', code: 'AUDIT_LOGS', path: '/audit-logs', icon: 'History' },
+    { name: 'Dashboard', code: 'DASHBOARD', path: '/dashboard', icon: 'FiGrid' },
+    { name: 'Users', code: 'USERS', path: '/rbac/users', icon: 'FiUsers' },
+    { name: 'Roles', code: 'ROLES', path: '/rbac/roles', icon: 'FiShield' },
+    { name: 'Modules', code: 'MODULES', path: '/rbac/modules', icon: 'FiBox' },
+    { name: 'Audit Logs', code: 'AUDIT_LOGS', path: '/rbac/audit-logs', icon: 'FiActivity' },
+    { name: 'Health Records', code: 'HEALTH_RECORDS', path: '/health-records', icon: 'FiFileText' },
+    { name: 'Fitness Tracking', code: 'FITNESS_TRACKING', path: '/fitness-tracking', icon: 'FiZap' },
   ];
 
   console.log('Creating modules and permissions...');
   for (const m of modules) {
     const code = m.code || m.name.toUpperCase().replace(/\s+/g, '_');
-    const existing = await prisma.module.findUnique({ where: { code } });
     
-    if (!existing) {
-      const module = await prisma.module.create({
-        data: {
-          name: m.name,
-          code,
-          path: m.path,
-          icon: m.icon,
-          isActive: true,
-          sortOrder: modules.indexOf(m),
+    const moduleData = {
+      name: m.name,
+      code,
+      path: m.path,
+      icon: m.icon,
+      isActive: true,
+      sortOrder: modules.indexOf(m),
+    };
+
+    const module = await prisma.module.upsert({
+      where: { code },
+      update: moduleData,
+      create: moduleData,
+    });
+
+    console.log(`Upserted module: ${m.name} (${m.path})`);
+
+    const actions = ['READ', 'WRITE', 'UPDATE', 'DELETE'];
+    for (const action of actions) {
+      await prisma.permission.upsert({
+        where: { code: `${code}.${action}` },
+        update: {},
+        create: {
+          moduleId: module.id,
+          code: `${code}.${action}`,
+          action,
+          scope: 'ALL',
+          description: `${action} ${m.name}`
         }
       });
-      console.log(`Created module: ${m.name}`);
-
-      const actions = ['READ', 'WRITE', 'UPDATE', 'DELETE'];
-      for (const action of actions) {
-        await prisma.permission.create({
-          data: {
-            moduleId: module.id,
-            code: `${code}.${action}`,
-            action,
-            scope: 'ALL',
-            description: `${action} ${m.name}`
-          }
-        });
-      }
-    } else {
-      console.log(`Module exists: ${m.name}`);
     }
   }
 

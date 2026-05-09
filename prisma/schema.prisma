@@ -25,10 +25,13 @@ model Profile {
   height         Float?
   profilePicture String?  @map("profile_picture")
   isSuperAdmin   Boolean  @default(false) @map("is_super_admin")
+  selectedRoleId String?  @map("selected_role_id")
   emailVerified  Boolean  @default(false) @map("email_verified")
   phoneVerified  Boolean  @default(false) @map("phone_verified")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt   @map("updated_at")
+
+  selectedRole   Role?    @relation("SelectedRole", fields: [selectedRoleId], references: [id])
 
   activities  FitnessActivity[]
   records     HealthRecord[]
@@ -287,6 +290,7 @@ model Role {
 
   userRoles       UserRole[]
   rolePermissions RolePermission[]
+  selectedBy      Profile[]        @relation("SelectedRole")
 
   @@index([code])
   @@map("roles")
