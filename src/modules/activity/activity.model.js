@@ -73,18 +73,20 @@ const upsertDailyActivity = async (phone, date, data) => {
 };
 
 /**
- * Finds today's activity record for a user (identified by phone).
+ * Finds activity record for a specific date (identified by phone).
+ * Defaults to server-calculated "today" if date is not provided.
  * 
  * @param {string} phone - Phone number
+ * @param {Date} date - Optional specific date
  */
-const findTodayActivity = async (phone) => {
+const findTodayActivity = async (phone, date = null) => {
     const userId = await getUserIdByPhone(phone);
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    const targetDate = date || new Date();
+    if (!date) targetDate.setUTCHours(0, 0, 0, 0);
 
     return prisma.fitnessActivity.findUnique({
         where: {
-            userId_date: { userId, date: today },
+            userId_date: { userId, date: targetDate },
         },
     });
 };

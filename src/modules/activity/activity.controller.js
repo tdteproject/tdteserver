@@ -37,9 +37,10 @@ const upsertDailyActivity = async (req, res, next) => {
             steps: metrics.steps,
             caloriesBurned: metrics.caloriesBurned,
             hydration: metrics.hydration,
+            date: req.body.date,
         });
 
-        const result = await activityService.upsertDailyActivity(phone, metrics, goals);
+        const result = await activityService.upsertDailyActivity(phone, metrics, goals, req.body.date);
 
         console.log('[ActivityController] ✓ Activity upserted successfully');
         return success(res, result, 'Daily activity synced successfully');
@@ -62,9 +63,9 @@ const getTodayActivity = async (req, res, next) => {
             return badRequest(res, 'Phone number required for activity tracking');
         }
 
-        console.log('[ActivityController] Fetching today activity for phone:', phone);
+        console.log('[ActivityController] Fetching activity for phone:', phone, 'date:', req.query.date || 'today');
 
-        const activity = await activityService.getTodayActivity(phone);
+        const activity = await activityService.getTodayActivity(phone, req.query.date);
 
         console.log('[ActivityController] ✓ Today activity retrieved:', activity ? 'found' : 'not found');
         return success(res, activity || null);

@@ -40,17 +40,18 @@ function transformActivityRecord(record) {
  * @param {string} phone - Phone number (primary identifier)
  * @param {object} metrics - { steps, caloriesBurned, hydration, activeTimeMinutes, distanceKm }
  * @param {object} goals   - { steps, hydration, caloriesBurned }
+ * @param {string} date    - Optional date string (YYYY-MM-DD)
  */
-const upsertDailyActivity = async (phone, metrics, goals) => {
+const upsertDailyActivity = async (phone, metrics, goals, date = null) => {
     if (!phone) {
         throw new Error('Phone number is required');
     }
 
-    // Normalize today's date to midnight UTC to match the DB Date column
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
+    // Normalize date to midnight UTC. Use client-provided date if available, otherwise today.
+    const syncDate = date ? new Date(date) : new Date();
+    syncDate.setUTCHours(0, 0, 0, 0);
 
-    const existing = await activityModel.findTodayActivity(phone);
+    const existing = await activityModel.findTodayActivity(phone, syncDate);
     const safeSteps = Math.max(Math.round(metrics.steps || 0), existing?.steps || 0);
 
     // If distance is not provided by the client, estimate from steps
@@ -70,7 +71,7 @@ const upsertDailyActivity = async (phone, metrics, goals) => {
         activeTimeMinutes: Math.max(Math.round(metrics.activeTimeMinutes || 0), existing?.activeTimeMinutes || 0),
     };
 
-    const result = await activityModel.upsertDailyActivity(phone, today, data);
+    const result = await activityModel.upsertDailyActivity(phone, syncDate, data);
     const socketService = require('../../services/socket.service');
     const transformed = transformActivityRecord(result);
     socketService.emitToUser(transformed.userId, 'activity:update', transformed);
@@ -79,16 +80,20 @@ const upsertDailyActivity = async (phone, metrics, goals) => {
 };
 
 /**
- * Gets today's activity for the user.
+ * Gets daily activity for the user on a specific date.
  * 
  * @param {string} phone - Phone number
+ * @param {string} date - Optional date string (YYYY-MM-DD)
  */
-const getTodayActivity = async (phone) => {
+const getTodayActivity = async (phone, date = null) => {
     if (!phone) {
         throw new Error('Phone number is required');
     }
 
-    const record = await activityModel.findTodayActivity(phone);
+    const queryDate = date ? new Date(date) : new Date();
+    queryDate.setUTCHours(0, 0, 0, 0);
+
+    const record = await activityModel.findTodayActivity(phone, queryDate);
     return transformActivityRecord(record);
 };
 
