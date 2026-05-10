@@ -41,15 +41,19 @@ const saveProfile = async (userId, phone, profileData) => {
             const existingByUid = await userModel.findProfileById(userId);
             if (existingByUid) {
                 console.log(`[UserService] 🗑️ Removing placeholder profile for UID ${userId} to allow migration.`);
-                // We use a raw delete to avoid any relation issues during this transition
                 await prisma.profile.delete({ where: { id: userId } });
             }
 
             console.log(`[UserService] 🏗️ Migrating legacy profile ${existingByPhone.id} -> ${userId}`);
             await userModel.migrateProfileId(existingByPhone.id, userId);
+        } else if (!existingByPhone) {
+            // If no profile has this phone yet, we can safely update the current user's profile with this phone
+            // This is handled by upsertProfile below, but we ensure mappedData doesn't conflict
+            console.log(`[UserService] 📱 Phone ${phone} is available. Will associate with UID ${userId}.`);
         }
     }
 
+    // Ensure phone is passed to upsert even if not in profileData
     const profile = await userModel.upsertProfile(userId, phone, mappedData);
 
     // Auto-assign USER role if they have no roles
