@@ -7,8 +7,9 @@ const successResponse = (res, data, status, message) => success(res, data, messa
 class AnalyticsController {
   async getPatientsOverview(req, res, next) {
     try {
-      const doctorId = req.user.uid; // Assuming the logged-in user is the doctor
-      const overview = await analyticsService.getPatientsOverview(doctorId);
+      const doctorId = req.user.uid;
+      const { date } = req.query;
+      const overview = await analyticsService.getPatientsOverview(doctorId, date);
       return successResponse(res, overview, 200, 'Patients overview retrieved successfully');
     } catch (error) {
       next(error);

@@ -5,7 +5,7 @@ class AnalyticsService {
   /**
    * Get basic health overview for multiple patients assigned to a doctor.
    */
-  async getPatientsOverview(doctorId) {
+  async getPatientsOverview(doctorId, date = null) {
     // 1. Get all users who are not Doctors or Admins (treated as patients)
     const patients = await prisma.profile.findMany({
       where: {
@@ -24,9 +24,9 @@ class AnalyticsService {
     const patientIds = patients.map(p => p.id);
     if (patientIds.length === 0) return [];
 
-    // 2. Get today's FitnessActivity for these patients
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // 2. Get the requested day's FitnessActivity for these patients
+    const today = date ? new Date(date) : new Date();
+    today.setUTCHours(0, 0, 0, 0);
 
     const fitnessActivities = await prisma.fitnessActivity.findMany({
       where: {
@@ -80,7 +80,7 @@ class AnalyticsService {
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
-    startDate.setHours(0, 0, 0, 0);
+    startDate.setUTCHours(0, 0, 0, 0);
 
     const fitnessActivities = await prisma.fitnessActivity.findMany({
       where: {

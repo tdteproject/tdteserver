@@ -51,8 +51,10 @@ const upsertDailyActivity = async (phone, metrics, goals, date = null) => {
     const syncDate = date ? new Date(date) : new Date();
     syncDate.setUTCHours(0, 0, 0, 0);
 
-    const existing = await activityModel.findTodayActivity(phone, syncDate);
-    const safeSteps = Math.max(Math.round(metrics.steps || 0), existing?.steps || 0);
+    // The client (mobile app) is the authoritative source of truth for current-day metrics.
+    // It already applies Math.max before syncing. Comparing against existing DB values
+    // caused stale data to lock in permanently, blocking day resets.
+    const safeSteps = Math.max(Math.round(metrics.steps || 0), 0);
 
     // If distance is not provided by the client, estimate from steps
     // Standard estimate: stride length ≈ 78cm for average adult height
@@ -63,12 +65,12 @@ const upsertDailyActivity = async (phone, metrics, goals, date = null) => {
     const data = {
         steps: safeSteps,
         stepGoal: Math.round(goals.steps || 10000),
-        caloriesBurned: Math.max(parseFloat((metrics.caloriesBurned || 0).toFixed(2)), existing?.caloriesBurned || 0),
+        caloriesBurned: Math.max(parseFloat((metrics.caloriesBurned || 0).toFixed(2)), 0),
         caloriesGoal: parseFloat((goals.caloriesBurned || 500).toFixed(2)),
-        distanceKm: Math.max(parseFloat(distanceKm.toFixed(4)), existing?.distanceKm || 0),
-        hydrationMl: Math.max(Math.round(metrics.hydration || 0), existing?.hydrationMl || 0),
+        distanceKm: Math.max(parseFloat(distanceKm.toFixed(4)), 0),
+        hydrationMl: Math.max(Math.round(metrics.hydration || 0), 0),
         hydrationGoalMl: Math.round(goals.hydration || 2500),
-        activeTimeMinutes: Math.max(Math.round(metrics.activeTimeMinutes || 0), existing?.activeTimeMinutes || 0),
+        activeTimeMinutes: Math.max(Math.round(metrics.activeTimeMinutes || 0), 0),
     };
 
     const result = await activityModel.upsertDailyActivity(phone, syncDate, data);
