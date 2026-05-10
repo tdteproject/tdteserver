@@ -28,25 +28,8 @@ async function resolvePermissionsForRequest(req) {
   let permissions = req._rbacPermissions;
 
   if (!permissions) {
-    let roleId = profile.selectedRoleId;
-
-    if (!roleId) {
-      const userRole = await prisma.userRole.findFirst({
-        where: {
-          userId: uid,
-          isActive: true,
-          role: {
-            isActive: true,
-            deletedAt: null,
-          },
-        },
-        select: { roleId: true },
-      });
-      roleId = userRole?.roleId || null;
-    }
-
-    permissions = roleId
-      ? await getPermissionsForRole(roleId)
+    permissions = profile.selectedRoleId
+      ? await getPermissionsForRole(profile.selectedRoleId)
       : await getUserPermissions(uid);
 
     req._rbacPermissions = permissions;

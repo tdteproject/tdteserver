@@ -65,7 +65,6 @@ async function ensureFirebaseUser({ email = null, phone = null }) {
   }
   if (phone) {
     createParams.phoneNumber = phone;
-    createParams.phoneVerified = true;
   }
 
   const userRecord = await admin.auth().createUser(createParams);
@@ -98,6 +97,21 @@ async function upsertAdminProfile({
       await prisma.profile.update({
         where: { id: existingWithEmail.id },
         data: { email: null }, // Free up the email
+      });
+    }
+  }
+
+  if (normalizedPhone) {
+    const existingWithPhone = await prisma.profile.findUnique({
+      where: { phone: normalizedPhone },
+    });
+
+    if (existingWithPhone && existingWithPhone.id !== uid) {
+      console.warn(`[AdminAuth] Identity Conflict: Phone ${normalizedPhone} is owned by ${existingWithPhone.id}, but Firebase says it belongs to ${uid}. Migrating...`);
+
+      await prisma.profile.update({
+        where: { id: existingWithPhone.id },
+        data: { phone: null },
       });
     }
   }

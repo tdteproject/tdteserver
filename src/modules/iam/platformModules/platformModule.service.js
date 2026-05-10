@@ -168,9 +168,17 @@ async function getModuleTree(roleId = null) {
     return buildTree(modules);
   }
 
+  return filterModulesByRoleIds(modules, [roleId]);
+}
+
+async function filterModulesByRoleIds(modules, roleIds = []) {
+  if (!roleIds.length) {
+    return buildTree(modules);
+  }
+
   const granted = await prisma.rolePermission.findMany({
     where: {
-      roleId,
+      roleId: { in: roleIds },
       isActive: true,
       deletedAt: null,
       permission: { deletedAt: null },
@@ -204,6 +212,26 @@ async function getAllModulesFeaturesPermissions() {
 
 async function getModulesFeaturesPermissions(roleId) {
   return getModuleTree(roleId);
+}
+
+async function getModulesFeaturesPermissionsForRoleIds(roleIds = []) {
+  if (!roleIds.length) {
+    return [];
+  }
+
+  const modules = await prisma.module.findMany({
+    where: {
+      deletedAt: null,
+      isActive: true,
+    },
+    select: MODULE_SELECT,
+    orderBy: [
+      { sortOrder: 'asc' },
+      { createdAt: 'asc' },
+    ],
+  });
+
+  return filterModulesByRoleIds(modules, roleIds);
 }
 
 async function getModule(id) {
@@ -393,6 +421,7 @@ async function deleteModule(id) {
 module.exports = {
   listModules,
   getModulesFeaturesPermissions,
+  getModulesFeaturesPermissionsForRoleIds,
   getAllModulesFeaturesPermissions,
   getModule,
   createModule,

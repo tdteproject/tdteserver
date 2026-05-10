@@ -8,6 +8,7 @@ const {
   updateModule,
   deleteModule,
   getModulesFeaturesPermissions,
+  getModulesFeaturesPermissionsForRoleIds,
   getAllModulesFeaturesPermissions,
 } = require("./platformModule.service");
 
@@ -32,17 +33,32 @@ async function listModulesFeaturesPermissions(req, res, next) {
     if (!roleId && req.user?.uid) {
       const profile = await prisma.profile.findUnique({
         where: { id: req.user.uid },
-        select: { selectedRoleId: true }
+        select: { selectedRoleId: true, isSuperAdmin: true }
       });
       
       if (profile?.selectedRoleId) {
         roleId = profile.selectedRoleId;
+      } else if (profile?.isSuperAdmin) {
+        const data = await getAllModulesFeaturesPermissions();
+        return res.json({
+          success: true,
+          message: "Modules and permissions fetched successfully",
+          data,
+        });
       } else {
-        const activeRole = await prisma.userRole.findFirst({
+        const activeRoles = await prisma.userRole.findMany({
           where: { userId: req.user.uid, isActive: true },
           select: { roleId: true },
         });
-        roleId = activeRole?.roleId || null;
+
+        const data = await getModulesFeaturesPermissionsForRoleIds(
+          activeRoles.map((item) => item.roleId)
+        );
+        return res.json({
+          success: true,
+          message: "Modules and permissions fetched successfully",
+          data,
+        });
       }
     }
 
