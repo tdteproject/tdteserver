@@ -30,7 +30,8 @@ validateEnv();
 const parseAllowedOrigins = () => {
     const raw = process.env.CORS_ALLOWED_ORIGINS;
     if (!raw || !raw.trim()) {
-        return [];
+        // Default to allowing all origins if not explicitly configured
+        return ['*'];
     }
 
     return raw
