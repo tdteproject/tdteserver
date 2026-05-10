@@ -104,16 +104,16 @@ const getTodayActivity = async (phone, date = null) => {
  * 
  * @param {string} phone - Phone number
  */
-const getWeekActivity = async (phone) => {
+const getWeekActivity = async (phone, date = null) => {
     if (!phone) {
         throw new Error('Phone number is required');
     }
 
-    const today = new Date();
+    const today = date ? new Date(date) : new Date();
     today.setUTCHours(0, 0, 0, 0);
 
     const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    sevenDaysAgo.setUTCDate(today.getUTCDate() - 6);
 
     const records = await activityModel.findActivityRange(phone, sevenDaysAgo, today);
     return records.map(transformActivityRecord).filter(r => r !== null);

@@ -88,10 +88,8 @@ const getWeekActivity = async (req, res, next) => {
             return badRequest(res, 'Phone number required for activity tracking');
         }
 
-        console.log('[ActivityController] Fetching week activity for phone:', phone);
-
-        const activities = await activityService.getWeekActivity(phone);
-
+        console.log('[ActivityController] Fetching week activity for phone:', phone, 'date:', req.query.date || 'today');
+        const activities = await activityService.getWeekActivity(phone, req.query.date);
         console.log('[ActivityController] ✓ Week activity retrieved:', activities ? activities.length : 0, 'days');
         return success(res, activities || []);
     } catch (err) {
