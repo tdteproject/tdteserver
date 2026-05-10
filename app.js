@@ -26,22 +26,27 @@ app.use(secureHeaders);
 app.use(enforceHttps);
 app.use(cors({
     origin(origin, callback) {
-        // Allow non-browser clients and server-to-server calls with no Origin header.
+        // 1. Allow non-browser clients (curl, mobile apps, etc.)
         if (!origin) {
             return callback(null, true);
         }
 
-        // Allow all in development if no specific origins defined
+        // 2. Allow ALL in development if no restrictions defined
         if (env.isDev && env.corsAllowedOrigins.length === 0) {
             return callback(null, true);
         }
 
-        // Check for exact match or wildcard
-        if (env.corsAllowedOrigins.includes(origin) || env.corsAllowedOrigins.includes('*')) {
+        // 3. Check for wildcard '*' in allowed origins
+        const isWildcardAllowed = env.corsAllowedOrigins.some(o => o === '*' || o === 'all');
+        
+        // 4. Check for exact match
+        const isExplicitlyAllowed = env.corsAllowedOrigins.includes(origin);
+
+        if (isWildcardAllowed || isExplicitlyAllowed) {
             return callback(null, true);
         }
 
-        console.warn(`[CORS] Rejected origin: ${origin}`);
+        console.warn(`[CORS] Forbidden Origin: ${origin}. Allowed: ${env.corsAllowedOrigins.join(', ')}`);
         return callback(new Error('CORS origin not allowed'));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
