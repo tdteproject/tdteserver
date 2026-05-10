@@ -18,6 +18,20 @@ services:
         sync: false # Set manually
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false # Set manually
+      - key: SMTP_SERVICE
+        value: gmail
+      - key: SMTP_AUTH_TYPE
+        value: password
+      - key: SMTP_USER
+        sync: false # Set manually
+      - key: SMTP_PASS
+        sync: false # For Gmail app password or switch to OAuth2 below
+      - key: OTP_FROM_EMAIL
+        sync: false # Usually same as SMTP_USER for Gmail
+      - key: OTP_FROM_NAME
+        value: PDT Admin
+      - key: EMAIL_OTP_ALLOW_CONSOLE_FALLBACK
+        value: false
       - key: CORS_ALLOWED_ORIGINS
         value: "*"
       - key: PORT

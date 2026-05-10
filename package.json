@@ -11,6 +11,7 @@
     "db:generate": "npx prisma generate",
     "db:studio": "npx prisma studio",
     "db:verify": "node .\\scripts\\verify-database.js",
+    "smtp:verify": "node .\\scripts\\verify-smtp.js",
     "supabase:preflight": "node .\\scripts\\supabase-preflight.js",
     "supabase:migrate:storage": "node .\\scripts\\migrate-storage-to-supabase.js --apply",
     "supabase:migrate:storage:dry": "node .\\scripts\\migrate-storage-to-supabase.js --dry-run",

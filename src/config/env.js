@@ -40,6 +40,12 @@ const parseAllowedOrigins = () => {
         .filter(Boolean);
 };
 
+const readEnv = (key, fallback = '') => {
+    const value = process.env[key];
+    if (value === undefined || value === null) return fallback;
+    return String(value).trim();
+};
+
 const parseBoolean = (value, fallback = false) => {
     if (value === undefined || value === null || value === '') return fallback;
     return String(value).toLowerCase() === 'true';
@@ -94,14 +100,19 @@ module.exports = {
         serviceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
     },
     smtp: {
-        service: process.env.SMTP_SERVICE || '',
-        host: process.env.SMTP_HOST || '',
+        service: readEnv('SMTP_SERVICE'),
+        host: readEnv('SMTP_HOST'),
         port: smtpPort,
         secure: parseBoolean(process.env.SMTP_SECURE, smtpPort === 465),
-        user: process.env.SMTP_USER || '',
-        pass: process.env.SMTP_PASS || '',
-        fromEmail: process.env.OTP_FROM_EMAIL || process.env.SMTP_USER || '',
-        fromName: process.env.OTP_FROM_NAME || 'PDT Admin',
+        user: readEnv('SMTP_USER'),
+        pass: readEnv('SMTP_PASS'),
+        fromEmail: readEnv('OTP_FROM_EMAIL') || readEnv('SMTP_USER'),
+        fromName: readEnv('OTP_FROM_NAME', 'PDT Admin'),
+        authType: readEnv('SMTP_AUTH_TYPE', 'password').toLowerCase(),
+        oauthClientId: readEnv('SMTP_OAUTH_CLIENT_ID'),
+        oauthClientSecret: readEnv('SMTP_OAUTH_CLIENT_SECRET'),
+        oauthRefreshToken: readEnv('SMTP_OAUTH_REFRESH_TOKEN'),
+        oauthAccessToken: readEnv('SMTP_OAUTH_ACCESS_TOKEN'),
     },
     security: {
         trustProxy: parseBoolean(process.env.TRUST_PROXY, isProduction),
@@ -117,6 +128,7 @@ module.exports = {
         writeLimiterMax: parseNumber(process.env.WRITE_LIMIT_MAX, 30),
         emailOtpExpiresMinutes: parseNumber(process.env.EMAIL_OTP_EXPIRES_MINUTES, 10),
         emailOtpMaxAttempts: parseNumber(process.env.EMAIL_OTP_MAX_ATTEMPTS, 5),
+        emailOtpAllowConsoleFallback: parseBoolean(process.env.EMAIL_OTP_ALLOW_CONSOLE_FALLBACK, process.env.NODE_ENV !== 'production'),
     },
     activeBaseUrl: `http://${host}:${port}`,
 };

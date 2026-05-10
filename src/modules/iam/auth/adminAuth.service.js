@@ -158,12 +158,16 @@ async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) 
 
   const code = createOtpCode();
   const expiresAt = new Date(Date.now() + env.security.emailOtpExpiresMinutes * 60 * 1000);
+  const canUseEmail = isMailConfigured();
+  const canFallbackToConsole = env.security.emailOtpAllowConsoleFallback;
 
-  if (!isMailConfigured()) {
-    console.log('\n[DEV] EMAIL OTP: ' + code + ' for ' + normalizedEmail + '\n');
+  if (!canUseEmail && !canFallbackToConsole) {
+    const error = new Error('Email OTP delivery is not configured on this server.');
+    error.status = 503;
+    throw error;
   }
 
-  await prisma.adminOtpChallenge.create({
+  const challenge = await prisma.adminOtpChallenge.create({
     data: {
       identifier: normalizedEmail,
       channel: OTP_CHANNELS.EMAIL,
@@ -175,12 +179,21 @@ async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) 
     },
   });
 
-  if (isMailConfigured()) {
-    await sendEmailOtp({
-      to: normalizedEmail,
-      code,
-      expiresInMinutes: env.security.emailOtpExpiresMinutes,
+  try {
+    if (canUseEmail) {
+      await sendEmailOtp({
+        to: normalizedEmail,
+        code,
+        expiresInMinutes: env.security.emailOtpExpiresMinutes,
+      });
+    } else {
+      console.log('\n[DEV] EMAIL OTP: ' + code + ' for ' + normalizedEmail + '\n');
+    }
+  } catch (error) {
+    await prisma.adminOtpChallenge.deleteMany({
+      where: { id: challenge.id },
     });
+    throw error;
   }
 
   await log({
@@ -191,7 +204,11 @@ async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) 
     ua: userAgent,
   });
 
-  return { channel: OTP_CHANNELS.EMAIL, expiresInMinutes: env.security.emailOtpExpiresMinutes };
+  return {
+    channel: OTP_CHANNELS.EMAIL,
+    expiresInMinutes: env.security.emailOtpExpiresMinutes,
+    delivery: canUseEmail ? 'email' : 'console',
+  };
 }
 
 async function sendPhoneLoginOtp({ phone, ipAddress = null, userAgent = null }) {

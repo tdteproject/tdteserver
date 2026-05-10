@@ -30,7 +30,20 @@ Recommended verification commands:
 ```bash
 npm run supabase:preflight
 npm run db:verify
+npm run smtp:verify
 ```
+
+To send a live OTP test email during verification:
+
+```bash
+SMTP_TEST_TO=you@example.com npm run smtp:verify
+```
+
+For Gmail SMTP:
+
+- `SMTP_AUTH_TYPE=password` uses a Google App Password and requires Google 2-Step Verification.
+- `SMTP_AUTH_TYPE=oauth2` uses `SMTP_OAUTH_CLIENT_ID`, `SMTP_OAUTH_CLIENT_SECRET`, and `SMTP_OAUTH_REFRESH_TOKEN`.
+- On production hosts like Render, Gmail can still block basic SMTP logins from unusual server IPs; OAuth2 is more reliable.
 
 ## Security notes
 

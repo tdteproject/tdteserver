@@ -3,6 +3,19 @@ const env = require('../config/env');
 let transporter;
 let nodemailerModule;
 
+function hasPasswordAuth() {
+  return Boolean(env.smtp.user && env.smtp.pass);
+}
+
+function hasOAuthAuth() {
+  return Boolean(
+    env.smtp.user
+      && env.smtp.oauthClientId
+      && env.smtp.oauthClientSecret
+      && env.smtp.oauthRefreshToken
+  );
+}
+
 function getNodemailer() {
   if (nodemailerModule) {
     return nodemailerModule;
@@ -25,29 +38,95 @@ function getNodemailer() {
 }
 
 function isMailConfigured() {
-  return Boolean(env.smtp.user && env.smtp.pass && (env.smtp.service || env.smtp.host));
+  const hasTransport = Boolean(env.smtp.service || env.smtp.host);
+  return hasTransport && (hasOAuthAuth() || hasPasswordAuth());
+}
+
+function buildAuthConfig() {
+  if (env.smtp.authType === 'oauth2') {
+    if (!hasOAuthAuth()) {
+      throw new Error(
+        'SMTP OAuth2 is selected, but SMTP_USER, SMTP_OAUTH_CLIENT_ID, SMTP_OAUTH_CLIENT_SECRET, and SMTP_OAUTH_REFRESH_TOKEN are required.'
+      );
+    }
+
+    return {
+      type: 'OAuth2',
+      user: env.smtp.user,
+      clientId: env.smtp.oauthClientId,
+      clientSecret: env.smtp.oauthClientSecret,
+      refreshToken: env.smtp.oauthRefreshToken,
+      ...(env.smtp.oauthAccessToken ? { accessToken: env.smtp.oauthAccessToken } : {}),
+    };
+  }
+
+  if (!hasPasswordAuth()) {
+    throw new Error('SMTP password auth requires SMTP_USER and SMTP_PASS.');
+  }
+
+  return {
+    user: env.smtp.user,
+    pass: env.smtp.pass,
+  };
+}
+
+function mapMailerError(error) {
+  const rawMessage = error?.response || error?.message || 'Unknown SMTP error';
+  const message = String(rawMessage);
+
+  if (error?.responseCode === 535 || /BadCredentials|Username and Password not accepted/i.test(message)) {
+    const mapped = new Error(
+      'SMTP authentication failed. For Gmail, use either a valid App Password with 2-Step Verification enabled or OAuth2 credentials, and re-check the Render environment variables.'
+    );
+    mapped.status = 503;
+    mapped.code = 'SMTP_AUTH_FAILED';
+    mapped.cause = error;
+    return mapped;
+  }
+
+  const mapped = new Error(`Failed to send OTP email: ${message}`);
+  mapped.status = 503;
+  mapped.code = error?.code || 'SMTP_SEND_FAILED';
+  mapped.cause = error;
+  return mapped;
 }
 
 function getTransporter() {
   if (!isMailConfigured()) {
-    throw new Error('SMTP is not configured. Set SMTP_USER, SMTP_PASS, and SMTP_SERVICE or SMTP_HOST.');
+    throw new Error(
+      'SMTP is not configured. Set SMTP_SERVICE or SMTP_HOST, SMTP_USER, and either SMTP_PASS or SMTP OAuth2 credentials.'
+    );
   }
 
   if (!transporter) {
     const nodemailer = getNodemailer();
-    transporter = nodemailer.createTransport({
-      ...(env.smtp.service ? { service: env.smtp.service } : {}),
-      ...(env.smtp.host ? { host: env.smtp.host } : {}),
-      port: env.smtp.port,
-      secure: env.smtp.secure,
-      auth: {
-        user: env.smtp.user,
-        pass: env.smtp.pass,
-      },
-    });
+    const transportConfig = {
+      auth: buildAuthConfig(),
+    };
+
+    if (env.smtp.service) {
+      transportConfig.service = env.smtp.service;
+    } else {
+      transportConfig.host = env.smtp.host;
+      transportConfig.port = env.smtp.port;
+      transportConfig.secure = env.smtp.secure;
+    }
+
+    console.log(`[Mailer] Creating transporter for ${env.smtp.user} (service: ${env.smtp.service || 'custom'})`);
+    transporter = nodemailer.createTransport(transportConfig);
   }
 
   return transporter;
+}
+
+async function verifyMailerConnection() {
+  const mailer = getTransporter();
+
+  try {
+    await mailer.verify();
+  } catch (error) {
+    throw mapMailerError(error);
+  }
 }
 
 async function sendEmailOtp({ to, code, expiresInMinutes }) {
@@ -56,25 +135,30 @@ async function sendEmailOtp({ to, code, expiresInMinutes }) {
     ? `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`
     : env.smtp.fromEmail;
 
-  await mailer.sendMail({
-    from,
-    to,
-    subject: `Your PDT Admin OTP is ${code}`,
-    text: `Your PDT Admin login OTP is ${code}. It expires in ${expiresInMinutes} minutes.`,
-    html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
-        <h2 style="margin:0 0 12px">PDT Admin Login</h2>
-        <p style="margin:0 0 12px">Use the OTP below to sign in to your admin account.</p>
-        <div style="display:inline-block;padding:12px 18px;border-radius:12px;background:#063C66;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:6px">
-          ${code}
+  try {
+    await mailer.sendMail({
+      from,
+      to,
+      subject: 'Your PDT Admin login OTP',
+      text: `Your PDT Admin login OTP is ${code}. It expires in ${expiresInMinutes} minutes.`,
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
+          <h2 style="margin:0 0 12px">PDT Admin Login</h2>
+          <p style="margin:0 0 12px">Use the OTP below to sign in to your admin account.</p>
+          <div style="display:inline-block;padding:12px 18px;border-radius:12px;background:#063C66;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:6px">
+            ${code}
+          </div>
+          <p style="margin:16px 0 0">This OTP expires in ${expiresInMinutes} minutes.</p>
         </div>
-        <p style="margin:16px 0 0">This OTP expires in ${expiresInMinutes} minutes.</p>
-      </div>
-    `,
-  });
+      `,
+    });
+  } catch (error) {
+    throw mapMailerError(error);
+  }
 }
 
 module.exports = {
   isMailConfigured,
   sendEmailOtp,
+  verifyMailerConnection,
 };
