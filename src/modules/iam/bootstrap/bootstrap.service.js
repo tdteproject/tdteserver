@@ -185,136 +185,132 @@ async function assignUserRole({ userId, roleId }) {
 }
 
 async function syncPdtAdminRbac({ userId = null } = {}) {
-  return prisma.$transaction(async (tx) => {
-    const modulesByCode = new Map();
-    const permissionIdsByCode = new Map();
+  const modulesByCode = new Map();
+  const permissionIdsByCode = new Map();
 
-    for (const moduleDef of PDT_ADMIN_MODULES) {
-      const parentId = moduleDef.parentCode ? modulesByCode.get(moduleDef.parentCode)?.id || null : null;
-      const moduleRecord = await tx.module.upsert({
-        where: { code: moduleDef.code },
+  for (const moduleDef of PDT_ADMIN_MODULES) {
+    const parentId = moduleDef.parentCode ? modulesByCode.get(moduleDef.parentCode)?.id || null : null;
+    const moduleRecord = await prisma.module.upsert({
+      where: { code: moduleDef.code },
+      update: {
+        name: moduleDef.name,
+        description: moduleDef.description || null,
+        path: moduleDef.path || null,
+        parentId,
+        icon: moduleDef.icon || null,
+        navigationType: moduleDef.navigationType || 'SIDEBAR',
+        isClickable: moduleDef.isClickable ?? true,
+        isVisible: moduleDef.isVisible ?? true,
+        sortOrder: moduleDef.sortOrder ?? 0,
+        isActive: true,
+        deletedAt: null,
+        updatedBy: userId,
+      },
+      create: {
+        code: moduleDef.code,
+        name: moduleDef.name,
+        description: moduleDef.description || null,
+        path: moduleDef.path || null,
+        parentId,
+        icon: moduleDef.icon || null,
+        navigationType: moduleDef.navigationType || 'SIDEBAR',
+        isClickable: moduleDef.isClickable ?? true,
+        isVisible: moduleDef.isVisible ?? true,
+        sortOrder: moduleDef.sortOrder ?? 0,
+        isActive: true,
+        createdBy: userId,
+        updatedBy: userId,
+      },
+    });
+
+    modulesByCode.set(moduleDef.code, moduleRecord);
+
+    for (const permissionDef of moduleDef.permissions) {
+      const permissionRecord = await prisma.permission.upsert({
+        where: { code: permissionDef.code },
         update: {
-          name: moduleDef.name,
-          description: moduleDef.description || null,
-          path: moduleDef.path || null,
-          parentId,
-          icon: moduleDef.icon || null,
-          navigationType: moduleDef.navigationType || 'SIDEBAR',
-          isClickable: moduleDef.isClickable ?? true,
-          isVisible: moduleDef.isVisible ?? true,
-          sortOrder: moduleDef.sortOrder ?? 0,
-          isActive: true,
+          moduleId: moduleRecord.id,
+          action: permissionDef.action,
+          scope: permissionDef.scope || 'ALL',
+          description: permissionDef.description || null,
           deletedAt: null,
-          updatedBy: userId,
         },
         create: {
-          code: moduleDef.code,
-          name: moduleDef.name,
-          description: moduleDef.description || null,
-          path: moduleDef.path || null,
-          parentId,
-          icon: moduleDef.icon || null,
-          navigationType: moduleDef.navigationType || 'SIDEBAR',
-          isClickable: moduleDef.isClickable ?? true,
-          isVisible: moduleDef.isVisible ?? true,
-          sortOrder: moduleDef.sortOrder ?? 0,
-          isActive: true,
-          createdBy: userId,
-          updatedBy: userId,
+          code: permissionDef.code,
+          moduleId: moduleRecord.id,
+          action: permissionDef.action,
+          scope: permissionDef.scope || 'ALL',
+          description: permissionDef.description || null,
         },
       });
 
-      modulesByCode.set(moduleDef.code, moduleRecord);
+      permissionIdsByCode.set(permissionDef.code, permissionRecord.id);
+    }
+  }
 
-      for (const permissionDef of moduleDef.permissions) {
-        const permissionRecord = await tx.permission.upsert({
-          where: { code: permissionDef.code },
-          update: {
-            moduleId: moduleRecord.id,
-            action: permissionDef.action,
-            scope: permissionDef.scope || 'ALL',
-            description: permissionDef.description || null,
-            deletedAt: null,
-          },
-          create: {
-            code: permissionDef.code,
-            moduleId: moduleRecord.id,
-            action: permissionDef.action,
-            scope: permissionDef.scope || 'ALL',
-            description: permissionDef.description || null,
-          },
+  for (const roleDef of PDT_ADMIN_ROLES) {
+    const roleRecord = await prisma.role.upsert({
+      where: { code: roleDef.code },
+      update: {
+        name: roleDef.name,
+        scope: roleDef.scope || 'PLATFORM',
+        isActive: true,
+        deletedAt: null,
+        updatedBy: userId,
+      },
+      create: {
+        code: roleDef.code,
+        name: roleDef.name,
+        scope: roleDef.scope || 'PLATFORM',
+        isActive: true,
+        createdBy: userId,
+        updatedBy: userId,
+      },
+    });
+
+    const targetPermissionIds = roleDef.permissions.includes('*')
+      ? Array.from(permissionIdsByCode.values())
+      : roleDef.permissions.map((code) => permissionIdsByCode.get(code)).filter(Boolean);
+
+    const existing = await prisma.rolePermission.findMany({
+      where: { roleId: roleRecord.id },
+      select: { id: true, permissionId: true },
+    });
+
+    const existingByPermissionId = new Map(existing.map((row) => [row.permissionId, row]));
+    const targetPermissionIdSet = new Set(targetPermissionIds);
+
+    for (const permissionId of targetPermissionIds) {
+      const match = existingByPermissionId.get(permissionId);
+      if (match) {
+        await prisma.rolePermission.update({
+          where: { id: match.id },
+          data: { isActive: true, deletedAt: null },
         });
-
-        permissionIdsByCode.set(permissionDef.code, permissionRecord.id);
+      } else {
+        await prisma.rolePermission.create({
+          data: { roleId: roleRecord.id, permissionId, isActive: true },
+        });
       }
     }
 
-    for (const roleDef of PDT_ADMIN_ROLES) {
-      const roleRecord = await tx.role.upsert({
-        where: { code: roleDef.code },
-        update: {
-          name: roleDef.name,
-          scope: roleDef.scope || 'PLATFORM',
-          isActive: true,
-          deletedAt: null,
-          updatedBy: userId,
-        },
-        create: {
-          code: roleDef.code,
-          name: roleDef.name,
-          scope: roleDef.scope || 'PLATFORM',
-          isActive: true,
-          createdBy: userId,
-          updatedBy: userId,
-        },
-      });
-
-      const targetPermissionIds = roleDef.permissions.includes('*')
-        ? Array.from(permissionIdsByCode.values())
-        : roleDef.permissions.map((code) => permissionIdsByCode.get(code)).filter(Boolean);
-
-      const existing = await tx.rolePermission.findMany({
-        where: {
-          roleId: roleRecord.id,
-        },
-        select: {
-          id: true,
-          permissionId: true,
-        },
-      });
-
-      const existingByPermissionId = new Map(existing.map((row) => [row.permissionId, row]));
-
-      for (const permissionId of targetPermissionIds) {
-        const match = existingByPermissionId.get(permissionId);
-        if (match) {
-          await tx.rolePermission.update({
-            where: { id: match.id },
-            data: {
-              isActive: true,
-              deletedAt: null,
-            },
-          });
-        } else {
-          await tx.rolePermission.create({
-            data: {
-              roleId: roleRecord.id,
-              permissionId,
-              isActive: true,
-            },
-          });
-        }
+    // Remove stale permissions no longer in catalog
+    for (const [permissionId, row] of existingByPermissionId) {
+      if (!targetPermissionIdSet.has(permissionId)) {
+        await prisma.rolePermission.update({
+          where: { id: row.id },
+          data: { isActive: false, deletedAt: new Date() },
+        });
       }
     }
+  }
 
-    return {
-      modules: PDT_ADMIN_MODULES.length,
-      roles: PDT_ADMIN_ROLES.length,
-      permissions: permissionIdsByCode.size,
-    };
-  });
+  return {
+    modules: PDT_ADMIN_MODULES.length,
+    roles: PDT_ADMIN_ROLES.length,
+    permissions: permissionIdsByCode.size,
+  };
 }
-
 module.exports = {
   createSuperAdmin,
   createPermissions,
@@ -323,3 +319,4 @@ module.exports = {
   assignUserRole,
   syncPdtAdminRbac,
 };
+

@@ -85,6 +85,20 @@ const PDT_ADMIN_MODULES = [
       { action: "READ", code: "AUDIT_LOGS.READ", description: "View audit logs" },
     ],
   },
+  {
+    code: "PATIENTS",
+    name: "Patients",
+    path: "/patients",
+    icon: "FiActivity",
+    navigationType: "SIDEBAR",
+    isClickable: true,
+    isVisible: true,
+    sortOrder: 7,
+    permissions: [
+      { action: "READ", code: "PATIENTS.READ", description: "View assigned patients" },
+      { action: "VIEW_ANALYTICS", code: "PATIENTS.VIEW_ANALYTICS", description: "View patient analytics" },
+    ],
+  },
 ];
 
 const PDT_ADMIN_ROLES = [
@@ -109,6 +123,17 @@ const PDT_ADMIN_ROLES = [
       "MODULES.WRITE",
       "MODULES.UPDATE",
       "AUDIT_LOGS.READ",
+    ],
+  },
+  {
+    code: "DOCTOR",
+    name: "Doctor",
+    scope: "PLATFORM",
+    permissions: [
+      "DASHBOARD.READ",
+      "PATIENTS.READ",
+      "PATIENTS.VIEW_ANALYTICS",
+      "USERS.READ"
     ],
   },
 ];

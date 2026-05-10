@@ -1,50 +1,81 @@
-/* src/modules/iam/assignments/assignment.controller.js */
-const AssignmentService = require("./assignment.service");
+const assignmentService = require('./assignment.service');
+const ApiError = require('../../../core/errors/ApiError');
+const { success, created } = require('../../../utils/apiResponse');
 
-async function assignRole(req, res, next) {
-  try {
-    const data = await AssignmentService.assignRoleToUser(req.body);
-    res.json({ success: true, data });
-  } catch (e) {
-    next(e);
+const successResponse = (res, data, status, message) =>
+  status === 201 ? created(res, data, message) : success(res, data, message);
+
+class AssignmentController {
+  // POST /iam/assignments — Admin assigns a patient to a doctor
+  async assignPatient(req, res, next) {
+    try {
+      const { doctorId, patientId } = req.body;
+      if (!doctorId || !patientId) throw new ApiError(400, 'doctorId and patientId are required');
+      const assignment = await assignmentService.assignPatientToDoctor(doctorId, patientId);
+      return successResponse(res, assignment, 201, 'Patient successfully assigned to doctor');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // DELETE /iam/assignments/:doctorId/:patientId
+  async unassignPatient(req, res, next) {
+    try {
+      const { doctorId, patientId } = req.params;
+      await assignmentService.unassignPatient(doctorId, patientId);
+      return successResponse(res, null, 200, 'Patient successfully unassigned');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // GET /iam/assignments/:doctorId/patients
+  async getAssignedPatients(req, res, next) {
+    try {
+      const { doctorId } = req.params;
+      const patients = await assignmentService.getAssignedPatients(doctorId);
+      return successResponse(res, patients, 200, 'Assigned patients retrieved successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // GET /iam/assignments/search?phone=+91...
+  async searchPatientByPhone(req, res, next) {
+    try {
+      const { phone } = req.query;
+      if (!phone) throw new ApiError(400, 'Phone number is required');
+      const patient = await assignmentService.findPatientByPhone(phone);
+      if (!patient) throw new ApiError(404, 'No patient found with this phone number');
+      return successResponse(res, patient, 200, 'Patient found');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // GET /iam/assignments/me/permissions — returns the logged-in user's permission codes
+  async getMyPermissions(req, res, next) {
+    try {
+      const userId = req.user?.uid;
+      if (!userId) throw new ApiError(401, 'Unauthenticated');
+      const permissions = await assignmentService.getPermissionsForUser(userId);
+      return successResponse(res, permissions, 200, 'Permissions retrieved successfully');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // POST /iam/assignments/select-role — user selects one of their assigned roles
+  async selectRole(req, res, next) {
+    try {
+      const userId = req.user?.uid;
+      const { roleId } = req.body;
+      const result = await assignmentService.selectRole(userId, roleId);
+      return successResponse(res, result, 200, result.message);
+    } catch (error) {
+      next(error);
+    }
   }
 }
 
-async function unassignRole(req, res, next) {
-  try {
-    const data = await AssignmentService.unassignRoleFromUser(req.body);
-    res.json({ success: true, data });
-  } catch (e) {
-    next(e);
-  }
-}
-
-async function attachPermission(req, res, next) {
-  try {
-    const data = await AssignmentService.attachPermissionToRole(req.body);
-    res.json({ success: true, data });
-  } catch (e) {
-    next(e);
-  }
-}
-
-async function myPermissions(req, res, next) {
-  try {
-    const perms = await AssignmentService.getUserEffectivePermissions({ userId: req.user.uid });
-    res.json({ success: true, data: perms });
-  } catch (e) {
-    next(e);
-  }
-}
-
-async function selectRole(req, res, next) {
-  try {
-    const { roleId } = req.body;
-    const data = await AssignmentService.selectRoleToUser({ userId: req.user.uid, roleId });
-    res.json({ success: true, data });
-  } catch (e) {
-    next(e);
-  }
-}
-
-module.exports = { assignRole, unassignRole, attachPermission, myPermissions, selectRole };
+module.exports = new AssignmentController();

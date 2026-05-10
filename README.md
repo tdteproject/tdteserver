@@ -44,6 +44,7 @@ For Gmail SMTP:
 - `SMTP_AUTH_TYPE=password` uses a Google App Password and requires Google 2-Step Verification.
 - `SMTP_AUTH_TYPE=oauth2` uses `SMTP_OAUTH_CLIENT_ID`, `SMTP_OAUTH_CLIENT_SECRET`, and `SMTP_OAUTH_REFRESH_TOKEN`.
 - On production hosts like Render, Gmail can still block basic SMTP logins from unusual server IPs; OAuth2 is more reliable.
+- If `SMTP authentication failed` appears on Render, re-check `SMTP_USER`, `SMTP_PASS`, `SMTP_AUTH_TYPE`, and `OTP_FROM_EMAIL` together. `SMTP_PASS` must be a Google App Password, not the normal Gmail password.
 
 ## Security notes
 

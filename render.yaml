@@ -23,11 +23,11 @@ services:
       - key: SMTP_AUTH_TYPE
         value: password
       - key: SMTP_USER
-        sync: false # Set manually
+        sync: false # Gmail address used for SMTP login
       - key: SMTP_PASS
-        sync: false # For Gmail app password or switch to OAuth2 below
+        sync: false # Google App Password, not the Gmail account password
       - key: OTP_FROM_EMAIL
-        sync: false # Usually same as SMTP_USER for Gmail
+        sync: false # Usually the same Gmail address as SMTP_USER
       - key: OTP_FROM_NAME
         value: PDT Admin
       - key: EMAIL_OTP_ALLOW_CONSOLE_FALLBACK
@@ -36,3 +36,9 @@ services:
         value: "*"
       - key: PORT
         value: 10000
+      - key: UPLOADS_DIR
+        value: /data/uploads
+    disk:
+      name: pdt-uploads
+      mountPath: /data/uploads
+      sizeGB: 1

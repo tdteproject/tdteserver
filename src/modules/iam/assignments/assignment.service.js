@@ -1,208 +1,216 @@
-/* src/modules/iam/assignments/assignment.service.js */
-
 const prisma = require('../../../config/db');
 const ApiError = require('../../../core/errors/ApiError');
+const { log } = require('../../../utils/auditLogger');
 
-/* -------------------------------------------------- */
-/* ASSIGN ROLE → USER                                 */
-/* -------------------------------------------------- */
-async function assignRoleToUser({ userId, roleId }) {
-  if (!userId || !roleId) {
-    throw new ApiError(400, "userId and roleId required");
-  }
-
-  const user = await prisma.profile.findUnique({ where: { id: userId } });
-  if (!user) throw new ApiError(404, "User not found");
-
-  const role = await prisma.role.findFirst({ where: { id: roleId, deletedAt: null, isActive: true } });
-  if (!role) throw new ApiError(404, "Role not found or inactive");
-
-  // Upsert to avoid duplicate errors
-  const existing = await prisma.userRole.findUnique({
-    where: { userId_roleId: { userId, roleId } },
-  });
-
-  if (existing) {
-    if (!existing.isActive) {
-      await prisma.userRole.update({
-        where: { id: existing.id },
-        data: { isActive: true },
-      });
-    }
-    return { userId, roleId, message: "Role already assigned" };
-  }
-
-  await prisma.userRole.create({
-    data: {
-      userId,
-      roleId,
-      isActive: true,
-    },
-  });
-
-  return { userId, roleId };
-}
-
-/* -------------------------------------------------- */
-/* UNASSIGN ROLE FROM USER                            */
-/* -------------------------------------------------- */
-async function unassignRoleFromUser({ userId, roleId }) {
-  if (!userId || !roleId) {
-    throw new ApiError(400, "userId and roleId required");
-  }
-
-  const existing = await prisma.userRole.findUnique({
-    where: { userId_roleId: { userId, roleId } },
-  });
-
-  if (!existing) {
-    throw new ApiError(404, "Role assignment not found for this user");
-  }
-
-  // Check if this was their active role, and if so, clear it
-  const user = await prisma.profile.findUnique({ where: { id: userId } });
-  if (user?.selectedRoleId === roleId) {
-    await prisma.profile.update({
-      where: { id: userId },
-      data: { selectedRoleId: null },
+class AssignmentService {
+  /**
+   * Assigns a patient to a doctor.
+   */
+  async assignPatientToDoctor(doctorId, patientId) {
+    const doctor = await prisma.profile.findUnique({
+      where: { id: doctorId },
+      include: { userRoles: { include: { role: true } } },
     });
-  }
 
-  return prisma.userRole.delete({
-    where: { userId_roleId: { userId, roleId } },
-  });
-}
+    if (!doctor) throw new ApiError(404, 'Doctor profile not found');
 
-/* -------------------------------------------------- */
-/* ATTACH PERMISSION → ROLE                           */
-/* -------------------------------------------------- */
-async function attachPermissionToRole({ roleId, permissionId }) {
-  if (!roleId || !permissionId) {
-    throw new ApiError(400, "roleId and permissionId required");
-  }
+    const hasDoctorRole = doctor.userRoles.some(ur => ur.role.code === 'DOCTOR' && ur.isActive);
+    if (!hasDoctorRole) throw new ApiError(400, 'User is not assigned the DOCTOR role');
 
-  const role = await prisma.role.findFirst({ where: { id: roleId, deletedAt: null, isActive: true } });
-  if (!role) throw new ApiError(404, "Role not found or inactive");
+    const patient = await prisma.profile.findUnique({ where: { id: patientId } });
+    if (!patient) throw new ApiError(404, 'Patient profile not found');
 
-  const perm = await prisma.permission.findFirst({ where: { id: permissionId, deletedAt: null } });
-  if (!perm) throw new ApiError(404, "Permission not found");
-
-  // Upsert to avoid duplicate errors
-  const existing = await prisma.rolePermission.findUnique({
-    where: { roleId_permissionId: { roleId, permissionId } },
-  });
-
-  if (existing) {
-    if (!existing.isActive || existing.deletedAt) {
-      await prisma.rolePermission.update({
-        where: { id: existing.id },
-        data: {
-          isActive: true,
-          deletedAt: null,
-        },
+    try {
+      const assignment = await prisma.doctorPatient.create({
+        data: { doctorId, patientId },
       });
+      await log({ userId: doctorId, action: 'ASSIGN_PATIENT', module: 'assignments', entityId: patientId, description: `Patient ${patientId} assigned to Doctor ${doctorId}` });
+      return assignment;
+    } catch (error) {
+      if (error.code === 'P2002') throw new ApiError(400, 'Patient is already assigned to this doctor');
+      throw error;
     }
-    return { roleId, permissionId, message: "Permission already attached" };
   }
 
-  await prisma.rolePermission.create({
-    data: { roleId, permissionId },
-  });
+  /**
+   * Unassigns a patient from a doctor.
+   */
+  async unassignPatient(doctorId, patientId) {
+    try {
+      await prisma.doctorPatient.delete({
+        where: { doctorId_patientId: { doctorId, patientId } },
+      });
+      await log({ userId: doctorId, action: 'UNASSIGN_PATIENT', module: 'assignments', entityId: patientId, description: `Patient ${patientId} unassigned from Doctor ${doctorId}` });
+      return { success: true };
+    } catch (error) {
+      if (error.code === 'P2025') throw new ApiError(404, 'Assignment not found');
+      throw error;
+    }
+  }
 
-  return { roleId, permissionId };
-}
+  /**
+   * Gets all patients assigned to a doctor.
+   */
+  async getAssignedPatients(doctorId) {
+    const assignments = await prisma.doctorPatient.findMany({
+      where: { doctorId },
+      include: {
+        patient: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phone: true,
+            age: true,
+            gender: true,
+            profilePicture: true,
+          },
+        },
+      },
+    });
+    return assignments.map(a => a.patient);
+  }
 
-/* -------------------------------------------------- */
-/* GET USER EFFECTIVE PERMISSIONS                     */
-/* -------------------------------------------------- */
-async function getUserEffectivePermissions({ userId }) {
-  if (!userId) throw new ApiError(400, "userId required");
+  /**
+   * Checks if a patient is assigned to a specific doctor.
+   */
+  async isPatientAssignedToDoctor(doctorId, patientId) {
+    const assignment = await prisma.doctorPatient.findUnique({
+      where: { doctorId_patientId: { doctorId, patientId } },
+    });
+    return !!assignment;
+  }
 
-  const user = await prisma.profile.findUnique({ 
-    where: { id: userId },
-    select: { id: true, isSuperAdmin: true, selectedRoleId: true }
-  });
-  if (!user) throw new ApiError(404, "User not found");
+  /**
+   * Finds a patient by phone number.
+   */
+  async findPatientByPhone(phone) {
+    const patient = await prisma.profile.findUnique({
+      where: { phone },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        age: true,
+        gender: true,
+        profilePicture: true,
+      },
+    });
+    return patient;
+  }
 
-  // If a specific role is selected, we limit permissions to THAT role (even for Super Admins)
-  if (user.selectedRoleId) {
-    const rolePermissions = await prisma.rolePermission.findMany({
-      where: { 
-        roleId: user.selectedRoleId, 
-        isActive: true, 
+  /**
+   * Gets all permission codes for a user (via their active roles).
+   */
+  async getPermissionsForUser(userId) {
+    if (!userId) return [];
+
+    const profile = await prisma.profile.findUnique({
+      where: { id: userId },
+      select: { isSuperAdmin: true, selectedRoleId: true },
+    });
+
+    // Super Admin without a forced role gets the wildcard
+    if (profile?.isSuperAdmin && !profile?.selectedRoleId) {
+      return ['*'];
+    }
+
+    // Get active role IDs
+    const userRoles = await prisma.userRole.findMany({
+      where: { userId, isActive: true, role: { isActive: true, deletedAt: null } },
+      select: { roleId: true },
+    });
+
+    const roleIds = profile?.selectedRoleId
+      ? [profile.selectedRoleId]
+      : [...new Set(userRoles.map(r => r.roleId))];
+
+    if (!roleIds.length) return [];
+
+    const rolePerms = await prisma.rolePermission.findMany({
+      where: {
+        roleId: { in: roleIds },
+        isActive: true,
         deletedAt: null,
-        permission: { deletedAt: null }
+        permission: { deletedAt: null },
       },
       include: { permission: { select: { code: true } } },
     });
-    return rolePermissions.map((rp) => rp.permission.code);
+
+    return [...new Set(rolePerms.map(rp => rp.permission.code))];
   }
 
-  // Fallback to existing logic: Super Admin sees everything if no specific role is selected
-  if (user.isSuperAdmin) {
-    const perms = await prisma.permission.findMany({
-      where: { deletedAt: null },
-      select: { code: true },
+  /**
+   * Assigns a role to a user. Creates the UserRole link if not already present.
+   * Replaces any existing active role with the new one (single active role policy).
+   */
+  async assignRoleToUser({ userId, roleId }) {
+    if (!userId || !roleId) throw new ApiError(400, 'userId and roleId are required');
+
+    const [user, role] = await Promise.all([
+      prisma.profile.findUnique({ where: { id: userId } }),
+      prisma.role.findUnique({ where: { id: roleId } }),
+    ]);
+
+    if (!user) throw new ApiError(404, 'User not found');
+    if (!role) throw new ApiError(404, 'Role not found');
+    if (!role.isActive || role.deletedAt) throw new ApiError(400, 'Role is not active');
+
+    // Upsert the role assignment
+    await prisma.userRole.upsert({
+      where: { userId_roleId: { userId, roleId } },
+      update: { isActive: true },
+      create: { userId, roleId, isActive: true },
     });
-    return perms.map((perm) => perm.code);
-  }
 
-  // Aggregate permissions from all active roles
-  const activeRoles = await prisma.userRole.findMany({
-    where: {
+    await log({
       userId,
-      isActive: true,
-      role: {
-        isActive: true,
-        deletedAt: null,
-      },
-    },
-    select: { roleId: true },
-  });
-
-  const roleIds = activeRoles.map((r) => r.roleId);
-  const rolePermissions = await prisma.rolePermission.findMany({
-    where: {
-      roleId: { in: roleIds },
-      isActive: true,
-      deletedAt: null,
-      permission: { deletedAt: null },
-    },
-    include: { permission: { select: { code: true } } },
-  });
-
-  const uniquePerms = [...new Set(rolePermissions.map((rp) => rp.permission.code))];
-  return uniquePerms;
-}
-
-async function selectRoleToUser({ userId, roleId }) {
-  if (!userId) throw new ApiError(400, "userId required");
-
-  // Validate user exists
-  const user = await prisma.profile.findUnique({ where: { id: userId } });
-  if (!user) throw new ApiError(404, "User not found");
-
-  // If roleId is provided, validate it belongs to the user
-  if (roleId) {
-    const userRole = await prisma.userRole.findUnique({
-      where: { userId_roleId: { userId, roleId } }
+      action: 'ASSIGN_ROLE',
+      module: 'assignments',
+      entityId: roleId,
+      description: `Role '${role.name}' assigned to user ${userId}`,
     });
-    if (!userRole) throw new ApiError(403, "User does not have this role assigned");
+
+    return { success: true, role: { id: role.id, name: role.name, code: role.code } };
   }
 
-  // Update profile with selected role (null means aggregate/superadmin mode)
-  await prisma.profile.update({
-    where: { id: userId },
-    data: { selectedRoleId: roleId || null }
-  });
+  /**
+   * Sets the active role for a user (updates selectedRoleId).
+   */
+  async selectRole(userId, roleId) {
+    if (!userId) throw new ApiError(401, 'Unauthenticated');
+    
+    // If roleId is null, we clear the selection (reverts to all assigned roles)
+    if (!roleId) {
+      await prisma.profile.update({
+        where: { id: userId },
+        data: { selectedRoleId: null },
+      });
+      return { success: true, message: 'Role selection cleared' };
+    }
 
-  return { userId, selectedRoleId: roleId || null };
+    // Verify the user actually has this role assigned and active
+    const userRole = await prisma.userRole.findFirst({
+      where: { userId, roleId, isActive: true, role: { isActive: true, deletedAt: null } },
+      include: { role: true },
+    });
+
+    if (!userRole) {
+      throw new ApiError(403, 'You are not assigned this role');
+    }
+
+    await prisma.profile.update({
+      where: { id: userId },
+      data: { selectedRoleId: roleId },
+    });
+
+    return { 
+      success: true, 
+      message: `Role switched to ${userRole.role.name}`,
+      role: { id: roleId, name: userRole.role.name, code: userRole.role.code }
+    };
+  }
 }
 
-module.exports = {
-  assignRoleToUser,
-  attachPermissionToRole,
-  getUserEffectivePermissions,
-  selectRoleToUser,
-  unassignRoleFromUser,
-};
+module.exports = new AssignmentService();

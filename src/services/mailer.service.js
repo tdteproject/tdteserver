@@ -76,7 +76,7 @@ function mapMailerError(error) {
 
   if (error?.responseCode === 535 || /BadCredentials|Username and Password not accepted/i.test(message)) {
     const mapped = new Error(
-      'SMTP authentication failed. For Gmail, use either a valid App Password with 2-Step Verification enabled or OAuth2 credentials, and re-check the Render environment variables.'
+      'SMTP authentication failed. For Gmail on Render, set SMTP_USER to the Gmail address, SMTP_PASS to a Google App Password (with 2-Step Verification enabled), and keep SMTP_AUTH_TYPE=password; or switch to SMTP_AUTH_TYPE=oauth2 with the OAuth env vars.'
     );
     mapped.status = 503;
     mapped.code = 'SMTP_AUTH_FAILED';

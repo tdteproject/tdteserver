@@ -85,15 +85,21 @@ async function upsertAdminProfile({
   if (normalizedEmail) {
     const existingWithEmail = await prisma.profile.findUnique({
       where: { email: normalizedEmail },
+      include: { userRoles: true }
     });
 
     if (existingWithEmail && existingWithEmail.id !== uid) {
-      console.warn(`[AdminAuth] Identity Conflict: Email ${normalizedEmail} is owned by ${existingWithEmail.id}, but Firebase says it belongs to ${uid}. Migrating...`);
+      console.warn(`[AdminAuth] Identity Conflict: Email ${normalizedEmail} owned by ${existingWithEmail.id}, but Firebase is ${uid}. Migrating roles...`);
       
-      // For safety in this specific migration: 
-      // We'll update the existing record to the new UID if possible, or just re-assign the email.
-      // Since changing PKs is hard, we'll delete the old empty/conflicting profile and create the new one,
-      // or just re-link the email if the current UID exists.
+      // Move roles to the new UID before freeing up the email
+      for (const ur of existingWithEmail.userRoles) {
+        await prisma.userRole.upsert({
+          where: { userId_roleId: { userId: uid, roleId: ur.roleId } },
+          update: { isActive: ur.isActive },
+          create: { userId: uid, roleId: ur.roleId, isActive: ur.isActive }
+        });
+      }
+
       await prisma.profile.update({
         where: { id: existingWithEmail.id },
         data: { email: null }, // Free up the email
@@ -104,10 +110,20 @@ async function upsertAdminProfile({
   if (normalizedPhone) {
     const existingWithPhone = await prisma.profile.findUnique({
       where: { phone: normalizedPhone },
+      include: { userRoles: true }
     });
 
     if (existingWithPhone && existingWithPhone.id !== uid) {
-      console.warn(`[AdminAuth] Identity Conflict: Phone ${normalizedPhone} is owned by ${existingWithPhone.id}, but Firebase says it belongs to ${uid}. Migrating...`);
+      console.warn(`[AdminAuth] Identity Conflict: Phone ${normalizedPhone} owned by ${existingWithPhone.id}, but Firebase is ${uid}. Migrating roles...`);
+
+      // Move roles to the new UID
+      for (const ur of existingWithPhone.userRoles) {
+        await prisma.userRole.upsert({
+          where: { userId_roleId: { userId: uid, roleId: ur.roleId } },
+          update: { isActive: ur.isActive },
+          create: { userId: uid, roleId: ur.roleId, isActive: ur.isActive }
+        });
+      }
 
       await prisma.profile.update({
         where: { id: existingWithPhone.id },
@@ -148,7 +164,11 @@ async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) 
     include: { userRoles: { include: { role: true } } }
   });
 
-  const hasAdminAccess = profile?.isSuperAdmin || (profile?.userRoles || []).some(ur => ur.role?.code === 'ADMIN' || ur.role?.code === 'SUPER_ADMIN');
+  // Allow access for Super Admins and any user with an active PLATFORM-scoped role
+  const hasAdminAccess = profile?.isSuperAdmin ||
+    (profile?.userRoles || []).some(
+      ur => ur.isActive && ur.role?.isActive && !ur.role?.deletedAt && ur.role?.scope === 'PLATFORM'
+    );
 
   if (!hasAdminAccess) {
     const error = new Error('Access denied. You do not have administrative privileges.');
@@ -225,7 +245,10 @@ async function sendPhoneLoginOtp({ phone, ipAddress = null, userAgent = null }) 
     include: { userRoles: { include: { role: true } } }
   });
 
-  const hasAdminAccess = profile?.isSuperAdmin || (profile?.userRoles || []).some(ur => ur.role?.code === 'ADMIN' || ur.role?.code === 'SUPER_ADMIN');
+  const hasAdminAccess = profile?.isSuperAdmin ||
+    (profile?.userRoles || []).some(
+      ur => ur.isActive && ur.role?.isActive && !ur.role?.deletedAt && ur.role?.scope === 'PLATFORM'
+    );
 
   if (!hasAdminAccess) {
     const error = new Error('Access denied. You do not have administrative privileges.');
@@ -645,7 +668,10 @@ async function firebasePhoneLogin({ firebaseToken, ipAddress = null, userAgent =
   }
 
   // 2. Check admin access (DO NOT auto-create admins)
-  const hasAdminAccess = profile.isSuperAdmin || (profile.userRoles || []).some(ur => ur.role?.code === 'ADMIN' || ur.role?.code === 'SUPER_ADMIN');
+  const hasAdminAccess = profile.isSuperAdmin ||
+    (profile.userRoles || []).some(
+      ur => ur.isActive && ur.role?.isActive && !ur.role?.deletedAt && ur.role?.scope === 'PLATFORM'
+    );
 
   if (!hasAdminAccess) {
     const error = new Error('Access denied. You do not have administrative privileges.');

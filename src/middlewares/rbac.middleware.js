@@ -1,154 +1,90 @@
 // src/middlewares/rbac.middleware.js
+//
+// Single unified RBAC middleware. All permission checks go through requirePermission('CODE').
+// Permissions are pre-loaded once per request into req._rbacPermissions.
+// Super Admins without a selectedRoleId get wildcard ('*') access — except for PATIENTS module.
 
 const prisma = require('../config/db');
 const ApiError = require('../core/errors/ApiError');
-const { getUserPermissions, getPermissionsForRole } = require('../modules/iam/permissions/permission.service');
+const assignmentService = require('../modules/iam/assignments/assignment.service');
 
-async function resolvePermissionsForRequest(req) {
+/**
+ * Pre-loads the current user's permission codes into req._rbacPermissions.
+ * Must run after verifyToken. Attach globally for all protected routes:
+ *   app.use(verifyToken, preloadPermissions)
+ * Or attach per-router.
+ */
+async function preloadPermissions(req, res, next) {
+  if (req._rbacPermissions) return next(); // Already loaded this request
+
   const uid = req.user?.uid;
+  if (!uid) return next(); // No user, skip (verifyToken handles 401)
 
-  if (!uid) {
-    throw new ApiError(401, "Unauthenticated");
+  try {
+    req._rbacPermissions = await assignmentService.getPermissionsForUser(uid);
+  } catch {
+    req._rbacPermissions = [];
   }
-
-  const profile = await prisma.profile.findUnique({
-    where: { id: uid },
-    select: { isSuperAdmin: true, selectedRoleId: true },
-  });
-
-  if (!profile) {
-    throw new ApiError(401, "User profile not found");
-  }
-
-  // Super Admin gets full access ONLY if they haven't explicitly switched to a restricted role
-  if (profile.isSuperAdmin && !profile.selectedRoleId) {
-    return { isSuperAdmin: true, permissions: [] };
-  }
-
-  let permissions = req._rbacPermissions;
-
-  if (!permissions) {
-    permissions = profile.selectedRoleId
-      ? await getPermissionsForRole(profile.selectedRoleId)
-      : await getUserPermissions(uid);
-
-    req._rbacPermissions = permissions;
-  }
-
-  return { isSuperAdmin: false, permissions };
+  next();
 }
 
-function requirePermission(permissionKey) {
+/**
+ * requirePermission(permissionCode)
+ * Returns a middleware that checks if the user has the given permission code.
+ * Super Admin (wildcard '*') always passes.
+ */
+function requirePermission(permissionCode) {
   return async (req, res, next) => {
     try {
-      const { isSuperAdmin, permissions } = await resolvePermissionsForRequest(req);
-
-      if (isSuperAdmin) {
-        return next();
+      if (!req._rbacPermissions) {
+        // Lazy-load if preloadPermissions wasn't run
+        const uid = req.user?.uid;
+        if (!uid) return next(new ApiError(401, 'Unauthenticated'));
+        req._rbacPermissions = await assignmentService.getPermissionsForUser(uid);
       }
 
-      if (!permissions.includes(permissionKey)) {
-        return next(
-          new ApiError(403, "Access denied", {
-            required: permissionKey,
-          })
-        );
-      }
+      const perms = req._rbacPermissions;
 
-      next();
+      if (perms.includes('*')) return next(); // Super Admin full access
+      if (perms.includes(permissionCode)) return next();
+
+      return next(new ApiError(403, `Access denied. Required: ${permissionCode}`));
     } catch (err) {
       next(err);
     }
   };
 }
 
-function requireAnyPermission(permissionKeys = []) {
+/**
+ * requirePermission.any(permissionCodes[])
+ * Passes if the user has ANY of the given permission codes.
+ */
+function requireAnyPermission(permissionCodes = []) {
   return async (req, res, next) => {
     try {
-      const { isSuperAdmin, permissions } = await resolvePermissionsForRequest(req);
-
-      if (isSuperAdmin) {
-        return next();
+      if (!req._rbacPermissions) {
+        const uid = req.user?.uid;
+        if (!uid) return next(new ApiError(401, 'Unauthenticated'));
+        req._rbacPermissions = await assignmentService.getPermissionsForUser(uid);
       }
 
-      if (permissionKeys.some((permissionKey) => permissions.includes(permissionKey))) {
-        return next();
-      }
+      const perms = req._rbacPermissions;
 
-      return next(
-        new ApiError(403, "Access denied", {
-          requiredAnyOf: permissionKeys,
-        })
-      );
+      if (perms.includes('*')) return next();
+      if (permissionCodes.some(code => perms.includes(code))) return next();
+
+      return next(new ApiError(403, `Access denied. Required any of: ${permissionCodes.join(', ')}`));
     } catch (err) {
       next(err);
-    }
-  };
-}
-
-function checkAccess(moduleCode, action) {
-  return async (req, res, next) => {
-    try {
-      const uid = req.user?.uid;
-      if (!uid) throw new ApiError(401, 'Unauthenticated');
-
-      const profile = await prisma.profile.findUnique({ where: { id: uid }, select: { isSuperAdmin: true } });
-      if (profile?.isSuperAdmin) return next();
-
-      let roleId = req.user?.selectedRole?.id || null;
-      if (!roleId) {
-        const userRole = await prisma.userRole.findFirst({
-          where: {
-            userId: uid,
-            isActive: true,
-            role: {
-              isActive: true,
-              deletedAt: null,
-            },
-          },
-          select: { roleId: true },
-        });
-        roleId = userRole?.roleId || null;
-      }
-
-      if (!roleId) return next(new ApiError(403, 'Access Denied: No active role context'));
-
-      const role = await prisma.role.findUnique({
-        where: { id: roleId },
-        include: {
-          rolePermissions: {
-            where: {
-              isActive: true,
-              deletedAt: null,
-              permission: {
-                deletedAt: null,
-              },
-            },
-            include: { permission: { select: { action: true, module: { select: { code: true } } } } },
-          },
-        },
-      });
-
-      if (!role || !role.isActive || role.deletedAt) return next(new ApiError(403, 'Access Denied: Inactive role'));
-
-      const hasAccess = (role.rolePermissions || []).some((rp) => {
-        const perm = rp.permission;
-        if (!perm) return false;
-        const permModuleCode = perm.module?.code || perm.moduleId || '';
-        return permModuleCode.toString().toUpperCase() === String(moduleCode).toUpperCase() &&
-               String(perm.action).toUpperCase() === String(action).toUpperCase();
-      });
-
-      if (!hasAccess) return next(new ApiError(403, `Forbidden: Requires ${action} permission in ${moduleCode}`));
-
-      return next();
-    } catch (err) {
-      return next(err);
     }
   };
 }
 
 requirePermission.any = requireAnyPermission;
-requirePermission.checkAccess = checkAccess;
+
+// checkAccess is kept for backward compatibility during transition but internally
+// delegates to the unified permission check using 'MODULE.ACTION' string format.
+requirePermission.checkAccess = (moduleCode, action) =>
+  requirePermission(`${moduleCode}.${action}`);
 
 module.exports = requirePermission;

@@ -43,6 +43,8 @@ model Profile {
   sleepSessions SleepSession[]
   gpsSessions   GpsSession[]
   userRoles     UserRole[]
+  doctorPatients DoctorPatient[] @relation("DoctorPatients")
+  patientDoctors DoctorPatient[] @relation("PatientDoctors")
 
   @@map("profiles")
 }
@@ -433,3 +435,21 @@ model AdminOtpChallenge {
   @@index([expiresAt])
   @@map("admin_otp_challenges")
 }
+
+// ─── Doctor ↔ Patient (many-to-many junction) ─────────────────────────────────
+// Maps patients to doctors for analytics assignment.
+model DoctorPatient {
+  id        String   @id @default(cuid())
+  doctorId  String   @map("doctor_id")
+  patientId String   @map("patient_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  doctor  Profile @relation("DoctorPatients", fields: [doctorId], references: [id], onDelete: Cascade)
+  patient Profile @relation("PatientDoctors", fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, patientId])
+  @@index([doctorId])
+  @@index([patientId])
+  @@map("doctor_patients")
+}
+

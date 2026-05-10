@@ -8,6 +8,12 @@ async function run() {
   );
   console.log(`[SMTP Verify] user=${env.smtp.user || 'missing'} from=${env.smtp.fromEmail || 'missing'}`);
 
+  if (env.smtp.service === 'gmail' && env.smtp.authType === 'password') {
+    console.log(
+      '[SMTP Verify] Gmail password auth requires a Google App Password, 2-Step Verification, and matching SMTP_USER / OTP_FROM_EMAIL values.'
+    );
+  }
+
   if (!isMailConfigured()) {
     console.error('[SMTP Verify] Mailer is not fully configured.');
     process.exit(1);

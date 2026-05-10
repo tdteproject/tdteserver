@@ -37,5 +37,6 @@ router.use('/health', healthRoutes);
 router.use('/fitness', fitnessRoutes);
 router.use('/sleep', sleepRoutes);
 router.use('/gps', gpsRoutes);
+router.use('/analytics', require('../../modules/analytics/analytics.routes'));
 
 module.exports = router;
