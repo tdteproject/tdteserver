@@ -7,6 +7,8 @@ const {
   requestPhoneVerificationOtp,
   verifyPhoneVerificationOtp,
   updateAdminProfile,
+  firebasePhoneLogin: firebasePhoneLoginService,
+  linkFirebasePhone: linkFirebasePhoneService,
 } = require('./adminAuth.service');
 
 async function sendEmailOtp(req, res, next) {
@@ -150,6 +152,43 @@ async function updateProfile(req, res, next) {
   }
 }
 
+async function firebasePhoneLogin(req, res, next) {
+  try {
+    const data = await firebasePhoneLoginService({
+      firebaseToken: req.body?.firebaseToken,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] || null,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Admin logged in via Firebase Phone Auth successfully',
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function linkFirebasePhone(req, res, next) {
+  try {
+    const data = await linkFirebasePhoneService({
+      userId: req.user.uid,
+      firebaseToken: req.body?.firebaseToken,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'] || null,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Phone number linked via Firebase Auth successfully',
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   sendEmailOtp,
   sendPhoneOtp,
@@ -159,4 +198,6 @@ module.exports = {
   requestPhoneVerification,
   verifyPhoneVerification,
   updateProfile,
+  firebasePhoneLogin,
+  linkFirebasePhone,
 };

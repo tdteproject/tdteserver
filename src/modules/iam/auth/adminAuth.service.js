@@ -573,6 +573,165 @@ function validateRoleScope(scope) {
   return normalizedScope;
 }
 
+// ─── Firebase Hybrid Phone Auth ──────────────────────────────────────────────────
+
+async function firebasePhoneLogin({ firebaseToken, ipAddress = null, userAgent = null }) {
+  if (!firebaseToken) {
+    const error = new Error('Firebase token is required');
+    error.status = 400;
+    throw error;
+  }
+
+  let decodedToken;
+  try {
+    decodedToken = await admin.auth().verifyIdToken(firebaseToken, true);
+  } catch (err) {
+    console.error('[AdminAuth] Invalid Firebase Token:', err.message);
+    const error = new Error('Invalid or expired Firebase token');
+    error.status = 401;
+    throw error;
+  }
+
+  const phone = decodedToken.phone_number;
+  if (!phone) {
+    const error = new Error('No phone number found in the verified token');
+    error.status = 400;
+    throw error;
+  }
+
+  const normalizedPhone = normalizePhone(phone);
+  
+  // 1. Check if the user exists in our DB by phone
+  const profile = await prisma.profile.findUnique({
+    where: { phone: normalizedPhone },
+    include: { userRoles: { include: { role: true } } }
+  });
+
+  if (!profile) {
+    const error = new Error('No account found for this phone number. Please contact an administrator.');
+    error.status = 404;
+    throw error;
+  }
+
+  // 2. Check admin access (DO NOT auto-create admins)
+  const hasAdminAccess = profile.isSuperAdmin || (profile.userRoles || []).some(ur => ur.role?.code === 'ADMIN' || ur.role?.code === 'SUPER_ADMIN');
+
+  if (!hasAdminAccess) {
+    const error = new Error('Access denied. You do not have administrative privileges.');
+    error.status = 403;
+    throw error;
+  }
+
+  // 3. Ensure they are using the correct Firebase UID
+  // If their Firebase UID doesn't match the DB, and we trust the phone, we might need to migrate, 
+  // but for strict security we only allow if it matches or we update the DB.
+  // Actually, upsertAdminProfile handles identity conflict if needed, or we just trust the UID from Firebase.
+  const uid = decodedToken.uid;
+  
+  await upsertAdminProfile({
+    uid,
+    phone: normalizedPhone,
+    phoneVerified: true,
+  });
+
+  // 4. Generate Backend Custom JWT (Firebase Custom Token)
+  const customToken = await admin.auth().createCustomToken(uid, {
+    adminAuth: true,
+    loginChannel: OTP_CHANNELS.SMS,
+  });
+
+  await log({
+    userId: uid,
+    action: 'FIREBASE_PHONE_LOGIN',
+    module: 'admin_auth',
+    description: `Admin logged in via Firebase Phone Auth with ${normalizedPhone}`,
+    ip: ipAddress,
+    ua: userAgent,
+  });
+
+  return {
+    customToken,
+    user: {
+      id: uid,
+      phone: normalizedPhone,
+      phoneVerified: true,
+      emailVerified: profile.emailVerified,
+    },
+  };
+}
+
+async function linkFirebasePhone({ userId, firebaseToken, ipAddress = null, userAgent = null }) {
+  if (!firebaseToken) {
+    const error = new Error('Firebase token is required');
+    error.status = 400;
+    throw error;
+  }
+
+  let decodedToken;
+  try {
+    decodedToken = await admin.auth().verifyIdToken(firebaseToken, true);
+  } catch (err) {
+    console.error('[AdminAuth] Invalid Firebase Token during linking:', err.message);
+    const error = new Error('Invalid or expired Firebase token');
+    error.status = 401;
+    throw error;
+  }
+
+  const phone = decodedToken.phone_number;
+  if (!phone) {
+    const error = new Error('No phone number found in the verified token');
+    error.status = 400;
+    throw error;
+  }
+
+  const normalizedPhone = normalizePhone(phone);
+
+  // Check if phone is already used by another account
+  const existingWithPhone = await prisma.profile.findUnique({
+    where: { phone: normalizedPhone }
+  });
+
+  if (existingWithPhone && existingWithPhone.id !== userId) {
+    const error = new Error('This phone number is already linked to another account.');
+    error.status = 409;
+    throw error;
+  }
+
+  // Update profile
+  await prisma.profile.update({
+    where: { id: userId },
+    data: {
+      phone: normalizedPhone,
+      phoneVerified: true,
+    },
+  });
+
+  // Update Firebase if possible (Link the phone to the current Firebase Auth user)
+  // Note: the frontend usually links the credential, but we can also update it server-side.
+  try {
+    await admin.auth().updateUser(userId, {
+      phoneNumber: normalizedPhone,
+    });
+  } catch (error) {
+    console.warn('[AdminAuth] Failed to update Firebase phone during link:', error.message);
+  }
+
+  await log({
+    userId,
+    action: 'LINK_FIREBASE_PHONE',
+    module: 'admin_auth',
+    description: `Phone number ${normalizedPhone} linked successfully via Firebase`,
+    ip: ipAddress,
+    ua: userAgent,
+  });
+
+  return { 
+    success: true, 
+    phone: normalizedPhone,
+    phoneVerified: true
+  };
+}
+
 module.exports = {
   buildEmailAdminUid,
   normalizeEmail,
@@ -586,4 +745,6 @@ module.exports = {
   verifyEmailLoginOtp,
   verifyPhoneLoginOtp,
   verifyPhoneVerificationOtp,
+  firebasePhoneLogin,
+  linkFirebasePhone,
 };
