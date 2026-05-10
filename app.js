@@ -31,14 +31,17 @@ app.use(cors({
             return callback(null, true);
         }
 
+        // Allow all in development if no specific origins defined
         if (env.isDev && env.corsAllowedOrigins.length === 0) {
             return callback(null, true);
         }
 
-        if (env.corsAllowedOrigins.includes(origin)) {
+        // Check for exact match or wildcard
+        if (env.corsAllowedOrigins.includes(origin) || env.corsAllowedOrigins.includes('*')) {
             return callback(null, true);
         }
 
+        console.warn(`[CORS] Rejected origin: ${origin}`);
         return callback(new Error('CORS origin not allowed'));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
