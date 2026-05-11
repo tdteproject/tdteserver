@@ -322,7 +322,7 @@ const resolvePublicFileUrl = async (reference, options = {}) => {
         return createSupabaseSignedUrl(bucket, objectPath, expiresInSeconds);
     }
 
-    return `${env.activeBaseUrl}/uploads/${reference}`;
+    return `${env.publicBaseUrl}/uploads/${reference}`;
 
 };
 

@@ -27,19 +27,6 @@ function validateEnv() {
 
 validateEnv();
 
-const parseAllowedOrigins = () => {
-    const raw = process.env.CORS_ALLOWED_ORIGINS;
-    if (!raw || !raw.trim()) {
-        // Default to allowing all origins if not explicitly configured
-        return ['*'];
-    }
-
-    return raw
-        .split(',')
-        .map((origin) => origin.trim())
-        .filter(Boolean);
-};
-
 const readEnv = (key, fallback = '') => {
     const value = process.env[key];
     if (value === undefined || value === null) return fallback;
@@ -56,6 +43,20 @@ const parseNumber = (value, fallback) => {
     return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const normalizeBaseUrl = (value) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+
+    const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+
+    try {
+        const url = new URL(withProtocol);
+        return url.toString().replace(/\/+$/, '');
+    } catch {
+        return '';
+    }
+};
+
 const defaultHost = process.env.NODE_ENV === 'production'
     ? '0.0.0.0'
     : (String(process.env.DEV_BIND_LOCALHOST || '').toLowerCase() === 'true' ? '127.0.0.1' : '0.0.0.0');
@@ -69,6 +70,32 @@ const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const databaseUrl = process.env.DATABASE_URL || '';
 const directDatabaseUrl = process.env.DIRECT_URL || process.env.DIRECT_DATABASE_URL || null;
 const smtpPort = parseNumber(process.env.SMTP_PORT, 587);
+const activeBaseUrl = `http://${host}:${port}`;
+const publicBaseUrl = normalizeBaseUrl(
+    process.env.PUBLIC_APP_URL
+    || process.env.RENDER_EXTERNAL_URL
+    || process.env.APP_BASE_URL
+    || activeBaseUrl
+);
+const parseAllowedOrigins = () => {
+    const raw = process.env.CORS_ALLOWED_ORIGINS;
+    if (!raw || !raw.trim()) {
+        if (isProduction) {
+            try {
+                return publicBaseUrl ? [new URL(publicBaseUrl).origin] : [];
+            } catch {
+                return [];
+            }
+        }
+
+        return ['*'];
+    }
+
+    return raw
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean);
+};
 
 module.exports = {
     appEnv,
@@ -130,5 +157,6 @@ module.exports = {
         emailOtpMaxAttempts: parseNumber(process.env.EMAIL_OTP_MAX_ATTEMPTS, 5),
         emailOtpAllowConsoleFallback: parseBoolean(process.env.EMAIL_OTP_ALLOW_CONSOLE_FALLBACK, process.env.NODE_ENV !== 'production'),
     },
-    activeBaseUrl: `http://${host}:${port}`,
+    activeBaseUrl,
+    publicBaseUrl,
 };

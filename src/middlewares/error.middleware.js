@@ -58,10 +58,13 @@ const errorMiddleware = (err, req, res, next) => {
     }
 
     // Generic server error
+    const statusCode = err.status || 500;
     return res.status(err.status || 500).json({
         success: false,
         error: 'Internal Server Error',
-        message: err.message,
+        message: statusCode >= 500 && process.env.NODE_ENV === 'production'
+            ? 'An unexpected error occurred.'
+            : err.message,
     });
 };
 

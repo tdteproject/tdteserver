@@ -82,7 +82,7 @@ app.get('/config', (req, res) => {
     }
 
     res.json({
-        baseUrl: env.activeBaseUrl,
+        baseUrl: env.publicBaseUrl,
         mode: env.appEnv
     });
 });

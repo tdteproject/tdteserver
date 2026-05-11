@@ -20,7 +20,8 @@ const { unauthorized } = require('../utils/apiResponse');
  */
 const verifyToken = async (req, res, next) => {
     const authHeader = req.headers.authorization;
-    const queryToken = req.query?.access_token;
+    const isUploadAssetRequest = req.baseUrl === '/uploads' || String(req.originalUrl || '').startsWith('/uploads/');
+    const queryToken = isUploadAssetRequest ? req.query?.access_token : null;
     const headerToken = authHeader && authHeader.startsWith('Bearer ')
         ? authHeader.split('Bearer ')[1]
         : null;

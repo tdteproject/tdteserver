@@ -33,6 +33,14 @@ function buildEmailAdminUid(email) {
   return `admin-email-${digest}`;
 }
 
+function logOtpForDebug(label, code, identifier) {
+  if (!env.isDev) {
+    return;
+  }
+
+  console.log(`\n[DEV] ${label}: ${code} for ${identifier}\n`);
+}
+
 async function ensureFirebaseUser({ email = null, phone = null }) {
   let firebaseUser;
   try {
@@ -207,7 +215,7 @@ async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) 
         expiresInMinutes: env.security.emailOtpExpiresMinutes,
       });
     } else {
-      console.log('\n[DEV] EMAIL OTP: ' + code + ' for ' + normalizedEmail + '\n');
+      logOtpForDebug('EMAIL OTP', code, normalizedEmail);
     }
   } catch (error) {
     await prisma.adminOtpChallenge.deleteMany({
@@ -259,7 +267,7 @@ async function sendPhoneLoginOtp({ phone, ipAddress = null, userAgent = null }) 
   const code = createOtpCode();
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 mins for SMS
 
-  console.log('\n[DEV] SMS OTP: ' + code + ' for ' + normalizedPhone + '\n');
+  logOtpForDebug('SMS OTP', code, normalizedPhone);
 
   await prisma.adminOtpChallenge.create({
     data: {
@@ -502,7 +510,7 @@ async function requestPhoneVerificationOtp({ userId, phone, ipAddress = null, us
   const code = createOtpCode();
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-  console.log('\n[DEV] PHONE VERIFICATION OTP: ' + code + ' for ' + normalizedPhone + '\n');
+  logOtpForDebug('PHONE VERIFICATION OTP', code, normalizedPhone);
 
   await prisma.adminOtpChallenge.create({
     data: {

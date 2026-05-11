@@ -95,6 +95,7 @@ class EnvironmentService {
             console.log('[EnvService] 🚀 Running on Render. Skipping tunnel.');
             this.activeUrl = process.env.RENDER_EXTERNAL_URL || this.activeUrl;
             env.activeBaseUrl = this.activeUrl;
+            env.publicBaseUrl = this.activeUrl;
             void this.publishToFirebase(this.activeUrl);
             return;
         }
@@ -104,6 +105,7 @@ class EnvironmentService {
                 const cloudUrl = await this.establishTunnel();
                 this.activeUrl = cloudUrl;
                 env.activeBaseUrl = cloudUrl;
+                env.publicBaseUrl = cloudUrl;
                 void this.publishToFirebase(cloudUrl);
             } catch (err) {
                 console.error('[EnvService] Error establishing cloud tunnel, falling back to local.', err);
