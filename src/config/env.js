@@ -146,7 +146,7 @@ module.exports = {
         enforceHttps: parseBoolean(process.env.ENFORCE_HTTPS, isProduction),
         allowPublicConfig: parseBoolean(process.env.ALLOW_PUBLIC_CONFIG, !isProduction),
         requireEmailVerified: parseBoolean(process.env.AUTH_REQUIRE_EMAIL_VERIFIED, true),
-        authMaxSessionAgeSeconds: parseNumber(process.env.AUTH_MAX_SESSION_AGE_SECONDS, 24 * 60 * 60),
+        authMaxSessionAgeSeconds: parseNumber(process.env.AUTH_MAX_SESSION_AGE_SECONDS, 30 * 24 * 60 * 60),
         authLimiterWindowMs: parseNumber(process.env.AUTH_LIMIT_WINDOW_MS, 15 * 60 * 1000),
         authLimiterMax: parseNumber(process.env.AUTH_LIMIT_MAX, 20),
         apiLimiterWindowMs: parseNumber(process.env.API_LIMIT_WINDOW_MS, 60 * 1000),
