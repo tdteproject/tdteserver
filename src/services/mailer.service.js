@@ -92,6 +92,10 @@ function mapMailerError(error) {
 }
 
 function getTransporter() {
+  if (env.smtp.host === 'smtp.resend.com') {
+    return null; // Using HTTP API instead of SMTP transport
+  }
+
   if (!isMailConfigured()) {
     throw new Error(
       'SMTP is not configured. Set SMTP_SERVICE or SMTP_HOST, SMTP_USER, and either SMTP_PASS or SMTP OAuth2 credentials.'
@@ -120,6 +124,14 @@ function getTransporter() {
 }
 
 async function verifyMailerConnection() {
+  if (env.smtp.host === 'smtp.resend.com') {
+    // Verify connection by checking that we have an API key configured
+    if (!env.smtp.pass) {
+      throw new Error('Resend API key is missing. Set SMTP_PASS to your Resend API Key.');
+    }
+    return;
+  }
+
   const mailer = getTransporter();
 
   try {
@@ -130,10 +142,48 @@ async function verifyMailerConnection() {
 }
 
 async function sendEmailOtp({ to, code, expiresInMinutes }) {
-  const mailer = getTransporter();
   const from = env.smtp.fromName
     ? `"${env.smtp.fromName}" <${env.smtp.fromEmail}>`
     : env.smtp.fromEmail;
+
+  // Render SMTP workaround: Send via Resend HTTP API (Port 443) which is not blocked
+  if (env.smtp.host === 'smtp.resend.com') {
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${env.smtp.pass}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from,
+          to: [to],
+          subject: 'Your PDT Admin login OTP',
+          text: `Your PDT Admin login OTP is ${code}. It expires in ${expiresInMinutes} minutes.`,
+          html: `
+            <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a">
+              <h2 style="margin:0 0 12px">PDT Admin Login</h2>
+              <p style="margin:0 0 12px">Use the OTP below to sign in to your admin account.</p>
+              <div style="display:inline-block;padding:12px 18px;border-radius:12px;background:#063C66;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:6px">
+                ${code}
+              </div>
+              <p style="margin:16px 0 0">This OTP expires in ${expiresInMinutes} minutes.</p>
+            </div>
+          `,
+        }),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        throw new Error(`Resend HTTP API returned status ${response.status}: ${errBody}`);
+      }
+      return;
+    } catch (error) {
+      throw mapMailerError(error);
+    }
+  }
+
+  const mailer = getTransporter();
 
   try {
     await mailer.sendMail({
@@ -162,3 +212,4 @@ module.exports = {
   sendEmailOtp,
   verifyMailerConnection,
 };
+
