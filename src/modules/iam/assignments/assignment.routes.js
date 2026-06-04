@@ -14,6 +14,19 @@ router.get('/me/permissions', assignmentController.getMyPermissions);
 // User selects one of their assigned roles to active context
 router.post('/select-role', assignmentController.selectRole);
 
+// Admin assigns or unassigns a role to/from a user
+router.post(
+  '/assign-role',
+  requirePermission('USERS.UPDATE'),
+  assignmentController.assignRole
+);
+
+router.post(
+  '/unassign-role',
+  requirePermission('USERS.UPDATE'),
+  assignmentController.unassignRole
+);
+
 // ─── Doctor-Patient Assignment ─────────────────────────────────────────────────
 // Admin assigns a patient to a doctor
 router.post(

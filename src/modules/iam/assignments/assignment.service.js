@@ -1,6 +1,13 @@
 const prisma = require('../../../config/db');
 const ApiError = require('../../../core/errors/ApiError');
 const { log } = require('../../../utils/auditLogger');
+const cacheService = require('../../../services/cache.service');
+// Use lazy getter to break circular dependency with adminAuth.service
+let _adminAuthService = null;
+const getAdminAuthService = () => {
+  if (!_adminAuthService) _adminAuthService = require('../auth/adminAuth.service');
+  return _adminAuthService;
+};
 
 class AssignmentService {
   /**
@@ -172,6 +179,9 @@ class AssignmentService {
       description: `Role '${role.name}' assigned to user ${userId}`,
     });
 
+    // Invalidate permission cache so the new role takes effect immediately
+    await cacheService.del(`user:permissions:${userId}`);
+
     return { success: true, role: { id: role.id, name: role.name, code: role.code } };
   }
 
@@ -187,6 +197,13 @@ class AssignmentService {
         where: { id: userId },
         data: { selectedRoleId: null },
       });
+
+      // Sync custom claims
+      await getAdminAuthService().syncCustomClaims(userId);
+
+      // Invalidate permissions cache
+      await cacheService.del(`user:permissions:${userId}`);
+
       return { success: true, message: 'Role selection cleared' };
     }
 
@@ -204,6 +221,12 @@ class AssignmentService {
       where: { id: userId },
       data: { selectedRoleId: roleId },
     });
+
+    // Sync custom claims
+    await getAdminAuthService().syncCustomClaims(userId);
+
+    // Invalidate permissions cache
+    await cacheService.del(`user:permissions:${userId}`);
 
     return { 
       success: true, 

@@ -7,6 +7,36 @@
 const prisma = require('../config/db');
 const ApiError = require('../core/errors/ApiError');
 const assignmentService = require('../modules/iam/assignments/assignment.service');
+const cacheService = require('../services/cache.service');
+
+/**
+ * Retrieves the permissions for the user, checking cache first, falling back to database, and caching the result.
+ */
+async function getCachedPermissions(userId) {
+  if (!userId) return [];
+  const cacheKey = `user:permissions:${userId}`;
+  
+  try {
+    const cached = await cacheService.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+  } catch (err) {
+    console.warn('[RBACMiddleware] Failed to read from permission cache:', err.message);
+  }
+
+  // Fallback to database
+  const permissions = await assignmentService.getPermissionsForUser(userId);
+
+  // Set in cache with 5 minutes TTL (300 seconds)
+  try {
+    await cacheService.set(cacheKey, permissions, 300);
+  } catch (err) {
+    console.warn('[RBACMiddleware] Failed to write to permission cache:', err.message);
+  }
+
+  return permissions;
+}
 
 /**
  * Pre-loads the current user's permission codes into req._rbacPermissions.
@@ -17,11 +47,11 @@ const assignmentService = require('../modules/iam/assignments/assignment.service
 async function preloadPermissions(req, res, next) {
   if (req._rbacPermissions) return next(); // Already loaded this request
 
-  const uid = req.user?.uid;
-  if (!uid) return next(); // No user, skip (verifyToken handles 401)
+  const userId = req.user?.profileId || req.user?.uid;
+  if (!userId) return next(); // No user, skip (verifyToken handles 401)
 
   try {
-    req._rbacPermissions = await assignmentService.getPermissionsForUser(uid);
+    req._rbacPermissions = await getCachedPermissions(userId);
   } catch {
     req._rbacPermissions = [];
   }
@@ -38,9 +68,9 @@ function requirePermission(permissionCode) {
     try {
       if (!req._rbacPermissions) {
         // Lazy-load if preloadPermissions wasn't run
-        const uid = req.user?.uid;
-        if (!uid) return next(new ApiError(401, 'Unauthenticated'));
-        req._rbacPermissions = await assignmentService.getPermissionsForUser(uid);
+        const userId = req.user?.profileId || req.user?.uid;
+        if (!userId) return next(new ApiError(401, 'Unauthenticated'));
+        req._rbacPermissions = await getCachedPermissions(userId);
       }
 
       const perms = req._rbacPermissions;
@@ -63,9 +93,9 @@ function requireAnyPermission(permissionCodes = []) {
   return async (req, res, next) => {
     try {
       if (!req._rbacPermissions) {
-        const uid = req.user?.uid;
-        if (!uid) return next(new ApiError(401, 'Unauthenticated'));
-        req._rbacPermissions = await assignmentService.getPermissionsForUser(uid);
+        const userId = req.user?.profileId || req.user?.uid;
+        if (!userId) return next(new ApiError(401, 'Unauthenticated'));
+        req._rbacPermissions = await getCachedPermissions(userId);
       }
 
       const perms = req._rbacPermissions;

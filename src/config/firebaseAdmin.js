@@ -14,7 +14,16 @@ if (!admin.apps.length) {
     try {
         let credential;
 
-        if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+        if (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+            // Option C: Individual environment variables
+            const privateKey = process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n');
+            credential = admin.credential.cert({
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                privateKey: privateKey,
+            });
+            console.log('[Firebase Admin] Initialized from individual environment variables (FIREBASE_PROJECT_ID, etc.).');
+        } else if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
             // Option B: Inline JSON string from environment variable
             const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
             credential = admin.credential.cert(serviceAccount);

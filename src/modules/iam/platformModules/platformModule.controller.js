@@ -1,6 +1,7 @@
 /* src/modules/iam/platformModules/platformModule.controller.js */
 
 const prisma = require("../../../config/db");
+const assignmentService = require('../assignments/assignment.service');
 const {
   listModules,
   getModule,
@@ -30,44 +31,39 @@ async function listModulesFeaturesPermissions(req, res, next) {
   try {
     let roleId = req.params.roleId;
 
-    if (!roleId && req.user?.uid) {
+    if (!roleId) {
+      // Delegate to assignment service (uses cache, no direct DB access)
+      const userId = req.user?.profileId || req.user?.uid;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: 'Unauthenticated' });
+      }
+
       const profile = await prisma.profile.findUnique({
-        where: { id: req.user.uid },
+        where: { id: userId },
         select: { selectedRoleId: true, isSuperAdmin: true }
       });
-      
+
+      if (profile?.isSuperAdmin && !profile?.selectedRoleId) {
+        // Super Admin with no role filter — return everything
+        const data = await getAllModulesFeaturesPermissions();
+        return res.json({ success: true, message: 'Modules and permissions fetched successfully', data });
+      }
+
       if (profile?.selectedRoleId) {
         roleId = profile.selectedRoleId;
-      } else if (profile?.isSuperAdmin) {
-        const data = await getAllModulesFeaturesPermissions();
-        return res.json({
-          success: true,
-          message: "Modules and permissions fetched successfully",
-          data,
-        });
       } else {
-        const activeRoles = await prisma.userRole.findMany({
-          where: { userId: req.user.uid, isActive: true },
+        // User with multiple active roles — fetch for all
+        const userRoles = await prisma.userRole.findMany({
+          where: { userId, isActive: true, role: { isActive: true, deletedAt: null } },
           select: { roleId: true },
         });
-
-        const data = await getModulesFeaturesPermissionsForRoleIds(
-          activeRoles.map((item) => item.roleId)
-        );
-        return res.json({
-          success: true,
-          message: "Modules and permissions fetched successfully",
-          data,
-        });
+        const data = await getModulesFeaturesPermissionsForRoleIds(userRoles.map(r => r.roleId));
+        return res.json({ success: true, message: 'Modules and permissions fetched successfully', data });
       }
     }
 
     const data = await getModulesFeaturesPermissions(roleId);
-    return res.json({
-      success: true,
-      message: "Modules and permissions fetched successfully",
-      data,
-    });
+    return res.json({ success: true, message: 'Modules and permissions fetched successfully', data });
   } catch (e) {
     next(e);
   }

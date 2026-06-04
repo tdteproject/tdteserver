@@ -40,17 +40,14 @@ const verifyToken = async (req, res, next) => {
         // checkRevoked=true ensures server-side session invalidation works.
         const decodedToken = await admin.auth().verifyIdToken(idToken, true);
 
-        const nowSeconds = Math.floor(Date.now() / 1000);
-        if (!decodedToken.exp || decodedToken.exp <= nowSeconds) {
-            return unauthorized(res, 'Token has expired. Please sign in again.');
-        }
-
         if (decodedToken.auth_time && env.security.authMaxSessionAgeSeconds > 0) {
+            const nowSeconds = Math.floor(Date.now() / 1000);
             const authAge = nowSeconds - decodedToken.auth_time;
             if (authAge > env.security.authMaxSessionAgeSeconds) {
                 return unauthorized(res, 'Session has expired. Please sign in again.');
             }
         }
+
 
         // if (
         //     env.security.requireEmailVerified &&
@@ -70,12 +67,16 @@ const verifyToken = async (req, res, next) => {
             return unauthorized(res, 'Token does not contain an identifier (phone or email). Please re-authenticate.');
         }
 
-        // Attach uid, phone, and email to request for use by controllers
+        // Attach uid, phone, email, and lightweight custom claims to request for use by controllers
         req.user = {
-            uid: decodedToken.uid,           // Firebase UID
-            phone: phone || null,            // Phone number (may be null for email users)
-            email: email || null,            // Email address (may be null for phone users)
-            ...decodedToken                   // Other Firebase claims
+            uid: decodedToken.uid,                                  // Firebase UID
+            phone: phone || null,                                   // Phone number (may be null for email users)
+            email: email || null,                                   // Email address (may be null for phone users)
+            profileId: decodedToken.profileId || decodedToken.uid,   // Fallback to uid if not set
+            selectedRoleId: decodedToken.selectedRoleId || null,
+            isSuperAdmin: !!decodedToken.isSuperAdmin,
+            tenantId: decodedToken.tenantId || null,
+            ...decodedToken                                         // Other Firebase claims
         };
 
         req.auth = {

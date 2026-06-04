@@ -59,17 +59,21 @@ app.use(express.json({ limit: '10mb' }));
 // Parse URL-encoded bodies (for form submissions)
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Broad abuse protection for API traffic and repeated auth failures.
+// Broad abuse protection for ALL API traffic
 app.use('/api', generalApiLimiter);
-app.use('/api/v1', authAttemptLimiter);
+// Tighter rate limiting ONLY for authentication endpoints
+app.use('/api/v1/iam/auth', authAttemptLimiter);
 
-// ─── Request Logger (Development) ─────────────────────────────────────────────
-if (process.env.NODE_ENV !== 'production') {
-    app.use((req, res, next) => {
-        console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
-        next();
+// ─── Request Logger ────────────────────────────────────────────────────────────
+app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        const level = res.statusCode >= 500 ? 'ERROR' : res.statusCode >= 400 ? 'WARN' : 'INFO';
+        console.log(`[${level}] ${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
     });
-}
+    next();
+});
 
 // ─── Environment Configuration API ──────────────────────────────────────────────
 app.get('/config', (req, res) => {

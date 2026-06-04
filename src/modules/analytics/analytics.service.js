@@ -6,24 +6,29 @@ class AnalyticsService {
    * Get basic health overview for multiple patients assigned to a doctor.
    */
   async getPatientsOverview(doctorId, date = null) {
-    const assignments = await prisma.doctorPatient.findMany({
-      where: { doctorId },
-      include: {
-        patient: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-            phone: true,
-            age: true,
-            gender: true,
-            profilePicture: true,
+    // Treat all users with the 'USER' role as patients accessible to doctors
+    const patients = await prisma.profile.findMany({
+      where: {
+        isSuperAdmin: false, // Exclude super admins
+        phone: { not: null }, // Must have registered via app (phone auth)
+        userRoles: {
+          some: {
+            role: {
+              code: 'USER',
+            },
           },
         },
       },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        age: true,
+        gender: true,
+        profilePicture: true,
+      },
     });
-
-    const patients = assignments.map((assignment) => assignment.patient).filter(Boolean);
     const patientIds = patients.map(p => p.id);
     if (patientIds.length === 0) return [];
 
@@ -70,13 +75,7 @@ class AnalyticsService {
    * Get detailed analytics for a single patient, checking authorization.
    */
   async getPatientDetails(doctorId, patientId, days = 7) {
-    const isAssigned = await prisma.doctorPatient.findUnique({
-      where: { doctorId_patientId: { doctorId, patientId } },
-    });
-
-    if (!isAssigned) {
-      throw new ApiError(403, 'Patient is not assigned to you');
-    }
+    // Allow doctor to access any patient's details without explicit assignment
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);

@@ -41,6 +41,44 @@ function logOtpForDebug(label, code, identifier) {
   console.log(`\n[DEV] ${label}: ${code} for ${identifier}\n`);
 }
 
+/**
+ * Synchronizes lightweight custom claims on the Firebase user record.
+ * Claims set: profileId, selectedRoleId, isSuperAdmin, tenantId.
+ */
+async function syncCustomClaims(profileId) {
+  if (!profileId) return;
+  try {
+    const profile = await prisma.profile.findUnique({
+      where: { id: profileId },
+      include: {
+        selectedRole: {
+          select: {
+            tenantId: true
+          }
+        }
+      }
+    });
+
+    if (!profile) {
+      console.warn(`[AdminAuth] Profile ${profileId} not found for custom claims sync`);
+      return;
+    }
+
+    const claims = {
+      profileId: profile.id,
+      selectedRoleId: profile.selectedRoleId || null,
+      isSuperAdmin: !!profile.isSuperAdmin,
+      tenantId: profile.selectedRole?.tenantId || null
+    };
+
+    await admin.auth().setCustomUserClaims(profileId, claims);
+    console.log(`[AdminAuth] Firebase custom claims synced for ${profileId}:`, claims);
+  } catch (error) {
+    console.error(`[AdminAuth] Failed to set Firebase custom claims for ${profileId}:`, error.message);
+  }
+}
+
+
 async function ensureFirebaseUser({ email = null, phone = null }) {
   let firebaseUser;
   try {
@@ -89,73 +127,52 @@ async function upsertAdminProfile({
   const normalizedEmail = email ? normalizeEmail(email) : null;
   const normalizedPhone = phone ? normalizePhone(phone) : null;
 
-  // Check if a profile with this email already exists but with a DIFFERENT ID
-  if (normalizedEmail) {
-    const existingWithEmail = await prisma.profile.findUnique({
-      where: { email: normalizedEmail },
-      include: { userRoles: true }
-    });
-
-    if (existingWithEmail && existingWithEmail.id !== uid) {
-      console.warn(`[AdminAuth] Identity Conflict: Email ${normalizedEmail} owned by ${existingWithEmail.id}, but Firebase is ${uid}. Migrating roles...`);
-      
-      // Move roles to the new UID before freeing up the email
-      for (const ur of existingWithEmail.userRoles) {
-        await prisma.userRole.upsert({
-          where: { userId_roleId: { userId: uid, roleId: ur.roleId } },
-          update: { isActive: ur.isActive },
-          create: { userId: uid, roleId: ur.roleId, isActive: ur.isActive }
-        });
-      }
-
-      await prisma.profile.update({
-        where: { id: existingWithEmail.id },
-        data: { email: null }, // Free up the email
-      });
-    }
-  }
-
-  if (normalizedPhone) {
-    const existingWithPhone = await prisma.profile.findUnique({
-      where: { phone: normalizedPhone },
-      include: { userRoles: true }
-    });
-
-    if (existingWithPhone && existingWithPhone.id !== uid) {
-      console.warn(`[AdminAuth] Identity Conflict: Phone ${normalizedPhone} owned by ${existingWithPhone.id}, but Firebase is ${uid}. Migrating roles...`);
-
-      // Move roles to the new UID
-      for (const ur of existingWithPhone.userRoles) {
-        await prisma.userRole.upsert({
-          where: { userId_roleId: { userId: uid, roleId: ur.roleId } },
-          update: { isActive: ur.isActive },
-          create: { userId: uid, roleId: ur.roleId, isActive: ur.isActive }
-        });
-      }
-
-      await prisma.profile.update({
-        where: { id: existingWithPhone.id },
-        data: { phone: null },
-      });
-    }
-  }
-
-  return prisma.profile.upsert({
-    where: { id: uid },
-    update: {
-      ...(normalizedEmail ? { email: normalizedEmail } : {}),
-      ...(normalizedPhone ? { phone: normalizedPhone } : {}),
-      ...(emailVerified ? { emailVerified: true } : {}),
-      ...(phoneVerified ? { phoneVerified: true } : {}),
+  // 1. Find existing Profile
+  const profile = await prisma.profile.findFirst({
+    where: {
+      OR: [
+        normalizedEmail ? { email: normalizedEmail } : undefined,
+        normalizedPhone ? { phone: normalizedPhone } : undefined,
+      ].filter(Boolean)
     },
-    create: {
-      id: uid,
-      email: normalizedEmail,
-      phone: normalizedPhone,
-      emailVerified,
-      phoneVerified,
-    },
+    include: { userRoles: { include: { role: true } } }
   });
+
+  // 2. Profile exists? NO -> Reject login
+  if (!profile) {
+    const error = new Error('Access denied. No existing account found. Please contact an administrator.');
+    error.status = 403;
+    throw error;
+  }
+
+  // 3. Check admin eligibility
+  const hasAdminAccess = profile.isSuperAdmin ||
+    (profile.userRoles || []).some(
+      ur => ur.isActive && ur.role?.isActive && !ur.role?.deletedAt && ur.role?.scope === 'PLATFORM'
+    );
+
+  // 4. Authorized? NO -> Reject login
+  if (!hasAdminAccess) {
+    const error = new Error('Access denied. You do not have administrative privileges.');
+    error.status = 403;
+    throw error;
+  }
+
+  // 5. Authorized? YES -> Update verified phone/email if required. Keep same Profile ID.
+  const updateData = {};
+  if (normalizedEmail && !profile.email) updateData.email = normalizedEmail;
+  if (normalizedPhone && !profile.phone) updateData.phone = normalizedPhone;
+  if (emailVerified && !profile.emailVerified) updateData.emailVerified = true;
+  if (phoneVerified && !profile.phoneVerified) updateData.phoneVerified = true;
+
+  if (Object.keys(updateData).length > 0) {
+    await prisma.profile.update({
+      where: { id: profile.id },
+      data: updateData,
+    });
+  }
+
+  return profile;
 }
 
 async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) {
@@ -167,14 +184,20 @@ async function sendEmailLoginOtp({ email, ipAddress = null, userAgent = null }) 
   }
 
   // Check admin access
-  const profile = await prisma.profile.findUnique({
+  const profile = await prisma.profile.findFirst({
     where: { email: normalizedEmail },
     include: { userRoles: { include: { role: true } } }
   });
 
+  if (!profile) {
+    const error = new Error('Access denied. No existing account found.');
+    error.status = 403;
+    throw error;
+  }
+
   // Allow access for Super Admins and any user with an active PLATFORM-scoped role
-  const hasAdminAccess = profile?.isSuperAdmin ||
-    (profile?.userRoles || []).some(
+  const hasAdminAccess = profile.isSuperAdmin ||
+    (profile.userRoles || []).some(
       ur => ur.isActive && ur.role?.isActive && !ur.role?.deletedAt && ur.role?.scope === 'PLATFORM'
     );
 
@@ -248,13 +271,19 @@ async function sendPhoneLoginOtp({ phone, ipAddress = null, userAgent = null }) 
   }
 
   // Check admin access
-  const profile = await prisma.profile.findUnique({
+  const profile = await prisma.profile.findFirst({
     where: { phone: normalizedPhone },
     include: { userRoles: { include: { role: true } } }
   });
 
-  const hasAdminAccess = profile?.isSuperAdmin ||
-    (profile?.userRoles || []).some(
+  if (!profile) {
+    const error = new Error('Access denied. No existing account found.');
+    error.status = 403;
+    throw error;
+  }
+
+  const hasAdminAccess = profile.isSuperAdmin ||
+    (profile.userRoles || []).some(
       ur => ur.isActive && ur.role?.isActive && !ur.role?.deletedAt && ur.role?.scope === 'PLATFORM'
     );
 
@@ -354,13 +383,16 @@ async function verifyEmailLoginOtp({ email, otp, ipAddress = null, userAgent = n
     emailVerified: true,
   });
 
-  const customToken = await admin.auth().createCustomToken(uid, {
+  await syncCustomClaims(profile.id);
+
+  const customToken = await admin.auth().createCustomToken(profile.id, {
     adminAuth: true,
     loginChannel: OTP_CHANNELS.EMAIL,
   });
 
+
   await log({
-    userId: uid,
+    userId: profile.id,
     action: 'VERIFY_EMAIL_OTP',
     module: 'admin_auth',
     entityId: challenge.id,
@@ -372,7 +404,7 @@ async function verifyEmailLoginOtp({ email, otp, ipAddress = null, userAgent = n
   return {
     customToken,
     user: {
-      id: uid,
+      id: profile.id,
       email: normalizedEmail,
       emailVerified: true,
       phoneVerified: profile.phoneVerified,
@@ -440,13 +472,16 @@ async function verifyPhoneLoginOtp({ phone, otp, ipAddress = null, userAgent = n
     phoneVerified: true,
   });
 
-  const customToken = await admin.auth().createCustomToken(uid, {
+  await syncCustomClaims(profile.id);
+
+  const customToken = await admin.auth().createCustomToken(profile.id, {
     adminAuth: true,
     loginChannel: OTP_CHANNELS.SMS,
   });
 
+
   await log({
-    userId: uid,
+    userId: profile.id,
     action: 'VERIFY_SMS_OTP',
     module: 'admin_auth',
     entityId: challenge.id,
@@ -458,7 +493,7 @@ async function verifyPhoneLoginOtp({ phone, otp, ipAddress = null, userAgent = n
   return {
     customToken,
     user: {
-      id: uid,
+      id: profile.id,
       phone: normalizedPhone,
       phoneVerified: true,
       emailVerified: profile.emailVerified,
@@ -487,6 +522,8 @@ async function syncAdminProfileFromToken(user = {}) {
     phoneVerified,
   });
 
+  await syncCustomClaims(uid);
+
   return prisma.profile.findUnique({
     where: { id: uid },
     include: {
@@ -497,6 +534,7 @@ async function syncAdminProfileFromToken(user = {}) {
       },
     },
   });
+
 }
 
 async function requestPhoneVerificationOtp({ userId, phone, ipAddress = null, userAgent = null }) {
@@ -699,14 +737,17 @@ async function firebasePhoneLogin({ firebaseToken, ipAddress = null, userAgent =
     phoneVerified: true,
   });
 
-  // 4. Generate Backend Custom JWT (Firebase Custom Token)
-  const customToken = await admin.auth().createCustomToken(uid, {
+  await syncCustomClaims(profile.id);
+
+  // 3. Generate Backend Custom JWT (Firebase Custom Token) using DB profile.id
+  const customToken = await admin.auth().createCustomToken(profile.id, {
     adminAuth: true,
     loginChannel: OTP_CHANNELS.SMS,
   });
 
+
   await log({
-    userId: uid,
+    userId: profile.id,
     action: 'FIREBASE_PHONE_LOGIN',
     module: 'admin_auth',
     description: `Admin logged in via Firebase Phone Auth with ${normalizedPhone}`,
@@ -717,7 +758,7 @@ async function firebasePhoneLogin({ firebaseToken, ipAddress = null, userAgent =
   return {
     customToken,
     user: {
-      id: uid,
+      id: profile.id,
       phone: normalizedPhone,
       phoneVerified: true,
       emailVerified: profile.emailVerified,
@@ -812,4 +853,5 @@ module.exports = {
   verifyPhoneVerificationOtp,
   firebasePhoneLogin,
   linkFirebasePhone,
+  syncCustomClaims,
 };
