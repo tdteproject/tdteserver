@@ -38,7 +38,7 @@ app.use(cors({
 
         // 3. Check for wildcard '*' in allowed origins
         const isWildcardAllowed = env.corsAllowedOrigins.some(o => o === '*' || o === 'all');
-        
+
         // 4. Check for exact match
         const isExplicitlyAllowed = env.corsAllowedOrigins.includes(origin);
 
