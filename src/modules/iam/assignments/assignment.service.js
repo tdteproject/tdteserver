@@ -171,6 +171,13 @@ class AssignmentService {
       create: { userId, roleId, isActive: true },
     });
 
+    if (role.code === 'SUPER_ADMIN') {
+      await prisma.profile.update({
+        where: { id: userId },
+        data: { isSuperAdmin: true },
+      });
+    }
+
     await log({
       userId,
       action: 'ASSIGN_ROLE',
@@ -183,6 +190,51 @@ class AssignmentService {
     await cacheService.del(`user:permissions:${userId}`);
 
     return { success: true, role: { id: role.id, name: role.name, code: role.code } };
+  }
+
+  /**
+   * Unassigns a role from a user.
+   */
+  async unassignRoleFromUser(userId, roleId) {
+    if (!userId || !roleId) throw new ApiError(400, 'userId and roleId are required');
+
+    const [user, role] = await Promise.all([
+      prisma.profile.findUnique({ where: { id: userId } }),
+      prisma.role.findUnique({ where: { id: roleId } }),
+    ]);
+
+    if (!user) throw new ApiError(404, 'User not found');
+    if (!role) throw new ApiError(404, 'Role not found');
+
+    await prisma.userRole.deleteMany({
+      where: { userId, roleId },
+    });
+
+    if (user.selectedRoleId === roleId) {
+      await prisma.profile.update({
+        where: { id: userId },
+        data: { selectedRoleId: null },
+      });
+    }
+
+    if (role.code === 'SUPER_ADMIN') {
+      await prisma.profile.update({
+        where: { id: userId },
+        data: { isSuperAdmin: false },
+      });
+    }
+
+    await log({
+      userId,
+      action: 'UNASSIGN_ROLE',
+      module: 'assignments',
+      entityId: roleId,
+      description: `Role '${role.name}' unassigned from user ${userId}`,
+    });
+
+    await cacheService.del(`user:permissions:${userId}`);
+
+    return { success: true };
   }
 
   /**
