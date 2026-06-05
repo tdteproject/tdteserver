@@ -9,7 +9,6 @@ class AnalyticsService {
     // Treat all users with the 'USER' role as patients accessible to doctors
     const patients = await prisma.profile.findMany({
       where: {
-        isSuperAdmin: false, // Exclude super admins
         phone: { not: null }, // Must have registered via app (phone auth)
         userRoles: {
           some: {
