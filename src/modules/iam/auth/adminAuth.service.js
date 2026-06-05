@@ -45,8 +45,8 @@ function logOtpForDebug(label, code, identifier) {
  * Synchronizes lightweight custom claims on the Firebase user record.
  * Claims set: profileId, selectedRoleId, isSuperAdmin, tenantId.
  */
-async function syncCustomClaims(profileId) {
-  if (!profileId) return;
+async function syncCustomClaims(firebaseUid, profileId = firebaseUid) {
+  if (!firebaseUid || !profileId) return;
   try {
     const profile = await prisma.profile.findUnique({
       where: { id: profileId },
@@ -71,10 +71,10 @@ async function syncCustomClaims(profileId) {
       tenantId: profile.selectedRole?.tenantId || null
     };
 
-    await admin.auth().setCustomUserClaims(profileId, claims);
-    console.log(`[AdminAuth] Firebase custom claims synced for ${profileId}:`, claims);
+    await admin.auth().setCustomUserClaims(firebaseUid, claims);
+    console.log(`[AdminAuth] Firebase custom claims synced for firebaseUid=${firebaseUid}, profileId=${profileId}:`, claims);
   } catch (error) {
-    console.error(`[AdminAuth] Failed to set Firebase custom claims for ${profileId}:`, error.message);
+    console.error(`[AdminAuth] Failed to set Firebase custom claims for firebaseUid=${firebaseUid}, profileId=${profileId}:`, error.message);
   }
 }
 
@@ -383,7 +383,7 @@ async function verifyEmailLoginOtp({ email, otp, ipAddress = null, userAgent = n
     emailVerified: true,
   });
 
-  await syncCustomClaims(profile.id);
+  await syncCustomClaims(profile.id, profile.id);
 
   const customToken = await admin.auth().createCustomToken(profile.id, {
     adminAuth: true,
@@ -472,7 +472,7 @@ async function verifyPhoneLoginOtp({ phone, otp, ipAddress = null, userAgent = n
     phoneVerified: true,
   });
 
-  await syncCustomClaims(profile.id);
+  await syncCustomClaims(profile.id, profile.id);
 
   const customToken = await admin.auth().createCustomToken(profile.id, {
     adminAuth: true,
@@ -514,7 +514,7 @@ async function syncAdminProfileFromToken(user = {}) {
   const emailVerified = Boolean(user.email_verified);
   const phoneVerified = Boolean(phone);
 
-  await upsertAdminProfile({
+  const profile = await upsertAdminProfile({
     uid,
     email,
     phone,
@@ -522,10 +522,10 @@ async function syncAdminProfileFromToken(user = {}) {
     phoneVerified,
   });
 
-  await syncCustomClaims(uid);
+  await syncCustomClaims(uid, profile.id);
 
   return prisma.profile.findUnique({
-    where: { id: uid },
+    where: { id: profile.id },
     include: {
       userRoles: {
         include: {
@@ -731,13 +731,13 @@ async function firebasePhoneLogin({ firebaseToken, ipAddress = null, userAgent =
   // Actually, upsertAdminProfile handles identity conflict if needed, or we just trust the UID from Firebase.
   const uid = decodedToken.uid;
   
-  await upsertAdminProfile({
+  const syncedProfile = await upsertAdminProfile({
     uid,
     phone: normalizedPhone,
     phoneVerified: true,
   });
 
-  await syncCustomClaims(profile.id);
+  await syncCustomClaims(uid, syncedProfile.id);
 
   // 3. Generate Backend Custom JWT (Firebase Custom Token) using DB profile.id
   const customToken = await admin.auth().createCustomToken(profile.id, {
